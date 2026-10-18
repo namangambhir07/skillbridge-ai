@@ -2,8 +2,18 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken, TokenPayload } from '../utils/auth.js';
 import { db } from '../db/database.js';
 
-export interface AuthenticatedRequest extends Request {
+export interface AuthenticatedRequest<
+  P = any,
+  ResBody = any,
+  ReqBody = any,
+  ReqQuery = any,
+  Locals extends Record<string, any> = Record<string, any>
+> extends Request<P, ResBody, ReqBody, ReqQuery, Locals> {
   user?: TokenPayload & { candidateProfileId?: string; employerProfileId?: string };
+  headers: Request['headers'];
+  body: ReqBody;
+  params: P;
+  query: ReqQuery;
 }
 
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
