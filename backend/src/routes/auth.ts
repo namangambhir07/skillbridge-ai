@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import crypto from 'crypto';
 import { db } from '../db/database.js';
+import { ensureDemoData } from '../db/seed.js';
 import { hashPassword, comparePassword, generateToken } from '../utils/auth.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
@@ -114,7 +115,20 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     }
 
     const { email, password } = parse.data;
-    const user = (await db.prepare('SELECT * FROM users WHERE email = ?').get(email)) as any;
+    let user = (await db.prepare('SELECT * FROM users WHERE email = ?').get(email)) as any;
+
+    const demoEmails = [
+      'candidate@skillbridge.ai',
+      'employer@skillbridge.ai',
+      'mentor@skillbridge.ai',
+      'admin@skillbridge.ai',
+    ];
+
+    if (!user && demoEmails.includes(email.toLowerCase())) {
+      console.log(`[Auth] Demo user ${email} not yet present in database. Initializing demo accounts...`);
+      await ensureDemoData();
+      user = (await db.prepare('SELECT * FROM users WHERE email = ?').get(email)) as any;
+    }
 
     if (!user || !comparePassword(password, user.password_hash)) {
       res.status(401).json({ error: 'Invalid email or password' });
@@ -196,6 +210,9 @@ authRouter.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Respon
 });
 
 authRouter.get('/demo-accounts', (_req: Request, res: Response) => {
+  ensureDemoData().catch((err: any) => {
+    console.error('[DemoAccounts Auto-Seed Error]:', err.message);
+  });
   res.json({
     candidate: {
       email: 'candidate@skillbridge.ai',

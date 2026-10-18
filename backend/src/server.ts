@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { initDatabase, checkDatabaseHealth } from './db/database.js';
+import { ensureDemoData } from './db/seed.js';
 import { authRouter } from './routes/auth.js';
 import { candidateRouter } from './routes/candidates.js';
 import { jobRouter } from './routes/jobs.js';
@@ -14,10 +15,12 @@ import { notificationRouter } from './routes/notifications.js';
 
 dotenv.config();
 
-// Initialize PostgreSQL database schema asynchronously
-initDatabase().catch((err) => {
-  console.error('[Startup Database Error]: Failed to initialize database schema:', err.message);
-});
+// Initialize PostgreSQL database schema asynchronously and ensure baseline demo accounts exist
+initDatabase()
+  .then(() => ensureDemoData())
+  .catch((err) => {
+    console.error('[Startup Database Error]: Failed to initialize database schema or demo accounts:', err.message);
+  });
 
 const app = express();
 const port = process.env.PORT || 5000;

@@ -213,6 +213,43 @@ async function runAllTests() {
   const health2 = await fetch(`${baseUrl}/health`);
   assert(health2.status === 200, 'Health endpoint /health returns HTTP 200');
 
+  // 6e. Demo Login & Credential Verification
+  console.log('\n7. Demo Login & Roles Verification:');
+  const demoAccountsRes = await fetch(`${baseUrl}/api/v1/auth/demo-accounts`);
+  assert(demoAccountsRes.status === 200, 'Endpoint /api/v1/auth/demo-accounts returns HTTP 200');
+
+  const candidateLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'candidate@skillbridge.ai', password: 'Candidate123!' }),
+  });
+  assert(candidateLoginRes.status === 200, 'Candidate demo login returns HTTP 200 OK');
+  const candidateData = (await candidateLoginRes.json()) as any;
+  assert(candidateData.token && candidateData.user?.role === 'candidate', 'Candidate login returns token and candidate role');
+
+  const employerLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'employer@skillbridge.ai', password: 'Employer123!' }),
+  });
+  assert(employerLoginRes.status === 200, 'Employer demo login returns HTTP 200 OK');
+  const employerData = (await employerLoginRes.json()) as any;
+  assert(employerData.token && employerData.user?.role === 'employer', 'Employer login returns token and employer role');
+
+  const mentorLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'mentor@skillbridge.ai', password: 'Mentor123!' }),
+  });
+  assert(mentorLoginRes.status === 200, 'Mentor demo login returns HTTP 200 OK');
+
+  const adminLoginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@skillbridge.ai', password: 'Admin123!' }),
+  });
+  assert(adminLoginRes.status === 200, 'Admin demo login returns HTTP 200 OK');
+
   server.close();
 
   await db.close();
