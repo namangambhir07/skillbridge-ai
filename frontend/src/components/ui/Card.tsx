@@ -20,7 +20,7 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className
 
 export const CardHeader: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className, children, ...props }) => {
   return (
-    <div className={twMerge(clsx('p-5 border-b border-slate-100', className))} {...props}>
+    <div className={twMerge(clsx('p-6 border-b border-slate-100', className))} {...props}>
       {children}
     </div>
   );
