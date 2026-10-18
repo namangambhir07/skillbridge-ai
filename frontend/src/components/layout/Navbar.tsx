@@ -63,12 +63,12 @@ export const Navbar: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <div className="flex items-center gap-8">
+          <div className="flex h-full items-center gap-8">
             <Link to="/" className="flex items-center gap-2.5 group">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-slate-900 via-blue-900 to-teal-600 flex items-center justify-center text-white shadow-md shadow-slate-900/10 group-hover:scale-105 transition-transform">
                 <Sparkles className="w-5 h-5 text-teal-300" />
               </div>
-              <div>
+              <div className="flex flex-col justify-center">
                 <div className="flex items-center gap-2">
                   <span className="font-extrabold text-lg tracking-tight text-slate-900">
                     SkillBridge<span className="text-teal-600">.AI</span>
@@ -77,12 +77,12 @@ export const Navbar: React.FC = () => {
                     Trace Engine
                   </span>
                 </div>
-                <p className="text-[10px] text-slate-500 hidden md:block">Better Matches. Faster Hiring. Real Opportunities.</p>
+                <p className="text-xs text-slate-500 hidden md:block">Better Matches. Faster Hiring. Real Opportunities.</p>
               </div>
             </Link>
 
             {/* Public Links */}
-            <nav className="hidden lg:flex items-center gap-1">
+            <nav className="hidden lg:flex items-center gap-6">
               {navLinks.map((link) => (
                 <Link
                   key={link.path}
@@ -106,7 +106,7 @@ export const Navbar: React.FC = () => {
             <div className="relative">
               <button
                 onClick={() => setShowDemoMenu(!showDemoMenu)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
                 title="1-Click Demo Role Switcher"
               >
                 <Sparkles className="w-3.5 h-3.5 text-teal-600" />
