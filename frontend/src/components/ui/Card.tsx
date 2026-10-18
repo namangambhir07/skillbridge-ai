@@ -7,7 +7,7 @@ export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className
     <div
       className={twMerge(
         clsx(
-          'bg-white rounded-2xl border border-slate-200/90 shadow-sm transition-all overflow-hidden',
+          'bg-white rounded-2xl border border-slate-200/70 shadow-sm transition-all overflow-hidden',
           className
         )
       )}
