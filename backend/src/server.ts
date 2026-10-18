@@ -68,6 +68,8 @@ app.use('/api/v1/notifications', notificationRouter);
 app.use('/api/v1', authRouter); // Supports /api/v1/register, /api/v1/login, /api/v1/me
 app.use('/api/auth', authRouter); // Supports /api/auth/register, /api/auth/login
 app.use('/auth', authRouter); // Supports /auth/register, /auth/login
+app.use('/api/v1/health/api/v1/auth', authRouter);
+app.use('/api/v1/health/auth', authRouter);
 
 // Health check with database connectivity probe
 const healthHandler = async (_req: Request, res: Response) => {
