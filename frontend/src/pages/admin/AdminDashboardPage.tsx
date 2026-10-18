@@ -326,7 +326,7 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Reviewer Reason & Audit Notes</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Reviewer Reason and Audit Notes</label>
             <textarea
               rows={3}
               required
