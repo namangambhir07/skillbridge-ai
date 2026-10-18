@@ -4,6 +4,7 @@ import { evaluateAdaptation } from '../services/adaptationEvaluator.js';
 import { hashPassword, comparePassword, generateToken, verifyToken } from '../utils/auth.js';
 import { db, initDatabase } from '../db/database.js';
 import { runSeed } from '../db/seed.js';
+import app from '../server.js';
 
 let passed = 0;
 let failed = 0;
@@ -156,6 +157,64 @@ async function runAllTests() {
   const miniProject = (await db.prepare("SELECT status FROM mini_projects WHERE id = 'mp_nexus_alex_1'").get()) as any;
   assert(miniProject && miniProject.status === 'accepted', 'Mini-project seeded in accepted state for reapplication proof');
 
+  // 6. HTTP Route & Registration Endpoint Verification
+  console.log('\n6. HTTP Route & Registration Verification:');
+  const server = app.listen(0);
+  const addr = server.address() as any;
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  // 6a. Canonical /api/v1/auth/register
+  const res1 = await fetch(`${baseUrl}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Canonical Test Candidate',
+      email: 'canonical@skillbridge.ai',
+      password: 'Password123!',
+      role: 'candidate',
+      headline: 'Frontend Engineer',
+    }),
+  });
+  assert(res1.status === 201, 'Canonical POST /api/v1/auth/register returns HTTP 201 Created');
+  const data1 = (await res1.json()) as any;
+  assert(data1.token && data1.user?.email === 'canonical@skillbridge.ai', 'Registration response contains JWT token and user metadata');
+
+  // 6b. Resilient alias: /api/v1/register (without /auth)
+  const res2 = await fetch(`${baseUrl}/api/v1/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Alias Test Employer',
+      email: 'alias_emp@skillbridge.ai',
+      password: 'Password123!',
+      role: 'employer',
+      orgName: 'Alias Cloud Tech',
+    }),
+  });
+  assert(res2.status === 201, 'Alias POST /api/v1/register (without /auth) returns HTTP 201 Created');
+
+  // 6c. Resilient alias: /api/auth/register (without /v1)
+  const res3 = await fetch(`${baseUrl}/api/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: 'Alias Test Mentor',
+      email: 'alias_mentor@skillbridge.ai',
+      password: 'Password123!',
+      role: 'mentor',
+    }),
+  });
+  assert(res3.status === 201, 'Alias POST /api/auth/register (without /v1) returns HTTP 201 Created');
+
+  // 6d. Health endpoints
+  const health1 = await fetch(`${baseUrl}/api/v1/health`);
+  assert(health1.status === 200, 'Health endpoint /api/v1/health returns HTTP 200');
+
+  const health2 = await fetch(`${baseUrl}/health`);
+  assert(health2.status === 200, 'Health endpoint /health returns HTTP 200');
+
+  server.close();
+
   await db.close();
 
   console.log('\n=============================================');
@@ -165,6 +224,7 @@ async function runAllTests() {
   if (failed > 0) {
     process.exit(1);
   }
+  process.exit(0);
 }
 
 runAllTests().catch((err) => {

@@ -212,6 +212,17 @@ SkillBridge AI was upgraded from SQLite (`better-sqlite3`) to PostgreSQL:
    - `CORS_ORIGIN`: Your production frontend URL (or `*`)
 4. Click **Deploy**.
 
+### Deploying the Frontend to Vercel
+1. In your [Vercel Dashboard](https://vercel.com/dashboard), click **Add New Project** and import your SkillBridge AI repository.
+2. In **Project Settings**:
+   - **Root Directory**: `frontend`
+   - **Framework Preset**: Vite
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+3. Add **Environment Variables** in Vercel Project Settings:
+   - `VITE_API_URL`: `https://your-skillbridge-backend.vercel.app` (your deployed backend URL from the step above)
+4. Click **Deploy**.
+
 ### Verifying the Production Health Endpoint
 Once deployed, verify database connectivity by requesting the health check:
 ```bash

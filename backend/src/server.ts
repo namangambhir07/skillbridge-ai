@@ -37,7 +37,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-// API Routes
+// API Routes - Canonical
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/candidates', candidateRouter);
 app.use('/api/v1/jobs', jobRouter);
@@ -49,8 +49,13 @@ app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/community', communityRouter);
 app.use('/api/v1/notifications', notificationRouter);
 
+// API Route Aliases (protects against missing /auth, missing /v1, or proxy rewrites)
+app.use('/api/v1', authRouter); // Supports /api/v1/register, /api/v1/login, /api/v1/me
+app.use('/api/auth', authRouter); // Supports /api/auth/register, /api/auth/login
+app.use('/auth', authRouter); // Supports /auth/register, /auth/login
+
 // Health check with database connectivity probe
-app.get('/api/v1/health', async (_req: Request, res: Response) => {
+const healthHandler = async (_req: Request, res: Response) => {
   const dbHealth = await checkDatabaseHealth();
   const statusCode = dbHealth.healthy ? 200 : 503;
   res.status(statusCode).json({
@@ -63,7 +68,11 @@ app.get('/api/v1/health', async (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     ...(dbHealth.error ? { databaseError: dbHealth.error } : {}),
   });
-});
+};
+
+app.get('/api/v1/health', healthHandler);
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
 
 // Global error handler
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
