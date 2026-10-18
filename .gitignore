@@ -14,6 +14,7 @@ dist/
 build/
 dist-ssr/
 *.tsbuildinfo
+.vercel/
 
 # SQLite and local databases
 *.db

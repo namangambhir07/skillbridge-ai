@@ -8,7 +8,7 @@ import { checkJobSafety } from '../services/safetyService.js';
 
 export const jobRouter = Router();
 
-jobRouter.get('/', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+jobRouter.get('/', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { search, type, category, workMode, location, verifiedOnly, sortBy } = req.query;
 
@@ -54,7 +54,7 @@ jobRouter.get('/', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
 
     query += ` ORDER BY j.created_at DESC`;
 
-    const jobs = db.prepare(query).all(...params) as any[];
+    const jobs = (await db.prepare(query).all(...params)) as any[];
 
     // If candidate logged in, get candidate skills for match calculation
     let candidateSkills: any[] = [];
@@ -62,94 +62,99 @@ jobRouter.get('/', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
     let savedJobIds = new Set<string>();
 
     if (req.user && req.user.role === 'candidate') {
-      candidateProfile = db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(req.user.userId) as any;
+      candidateProfile = (await db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(req.user.userId)) as any;
       if (candidateProfile) {
-        candidateSkills = db.prepare(`
+        candidateSkills = (await db.prepare(`
           SELECT s.name, cs.proficiency_level, cs.evidence_source
           FROM candidate_skills cs
           JOIN skills s ON s.id = cs.skill_id
           WHERE cs.candidate_id = ?
-        `).all(candidateProfile.id);
+        `).all(candidateProfile.id)) as any[];
 
-        const saved = db.prepare('SELECT job_id FROM saved_opportunities WHERE candidate_id = ?').all(candidateProfile.id) as any[];
+        const saved = (await db.prepare('SELECT job_id FROM saved_opportunities WHERE candidate_id = ?').all(candidateProfile.id)) as any[];
         savedJobIds = new Set(saved.map((s) => s.job_id));
       }
     }
 
-    const enriched = jobs.map((job) => {
-      const requirements = db.prepare(`
-        SELECT s.name, jsr.is_required, jsr.min_proficiency
-        FROM job_skill_requirements jsr
-        JOIN skills s ON s.id = jsr.skill_id
-        WHERE jsr.job_id = ?
-      `).all(job.id) as any[];
+    const enriched = await Promise.all(
+      jobs.map(async (job) => {
+        const requirements = (await db.prepare(`
+          SELECT s.name, jsr.is_required, jsr.min_proficiency
+          FROM job_skill_requirements jsr
+          JOIN skills s ON s.id = jsr.skill_id
+          WHERE jsr.job_id = ?
+        `).all(job.id)) as any[];
 
-      let match = null;
-      if (candidateProfile) {
-        match = calculateMatchScore(
-          {
-            id: candidateProfile.id,
-            skills: candidateSkills,
-            experience: candidateProfile.experience,
-            projects: candidateProfile.bio,
-            preferred_work_mode: candidateProfile.preferred_work_mode,
-            location_preference: candidateProfile.location_preference,
-          },
-          {
-            id: job.id,
-            title: job.title,
-            category: job.category,
-            work_mode: job.work_mode,
-            location: job.location,
-            experience_level: job.experience_level,
-            requirements,
-            hasAssessmentAvailable: true,
-          }
-        );
-      }
+        let match = null;
+        if (candidateProfile) {
+          match = calculateMatchScore(
+            {
+              id: candidateProfile.id,
+              skills: candidateSkills,
+              experience: candidateProfile.experience,
+              projects: candidateProfile.bio,
+              preferred_work_mode: candidateProfile.preferred_work_mode,
+              location_preference: candidateProfile.location_preference,
+            },
+            {
+              id: job.id,
+              title: job.title,
+              category: job.category,
+              work_mode: job.work_mode,
+              location: job.location,
+              experience_level: job.experience_level,
+              requirements,
+              hasAssessmentAvailable: true,
+            }
+          );
+        }
 
-      return {
-        ...job,
-        requirements,
-        match,
-        isSaved: savedJobIds.has(job.id),
-      };
-    });
+        return {
+          ...job,
+          requirements,
+          match,
+          isSaved: savedJobIds.has(job.id),
+        };
+      })
+    );
 
     if (sortBy === 'match' && candidateProfile) {
       enriched.sort((a, b) => (b.match?.overallScore || 0) - (a.match?.overallScore || 0));
     }
 
-    res.json({ jobs: enriched });
+    res.json({
+      jobs: enriched,
+      total: enriched.length,
+    });
   } catch (err: any) {
-    res.status(500).json({ error: 'Failed to list jobs', details: err.message });
+    res.status(500).json({ error: 'Failed to fetch jobs', details: err.message });
   }
 });
 
-jobRouter.get('/:id', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+jobRouter.get('/:id', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const job = db.prepare(`
+    const job = (await db.prepare(`
       SELECT j.*, ep.org_name, ep.org_website, ep.business_email, ep.description as org_description,
              ep.logo_url, ep.company_size, ep.industry, ev.status as verification_status
       FROM jobs j
       JOIN employer_profiles ep ON ep.id = j.employer_id
       LEFT JOIN employer_verifications ev ON ev.employer_id = ep.id
       WHERE j.id = ?
-    `).get(req.params.id) as any;
+    `).get(req.params.id)) as any;
 
     if (!job) {
       res.status(404).json({ error: 'Opportunity not found' });
       return;
     }
 
-    const requirements = db.prepare(`
+    const requirements = (await db.prepare(`
       SELECT s.name, jsr.is_required, jsr.min_proficiency
       FROM job_skill_requirements jsr
       JOIN skills s ON s.id = jsr.skill_id
       WHERE jsr.job_id = ?
-    `).all(job.id) as any[];
+    `).all(job.id)) as any[];
 
-    const assessment = db.prepare(`
+    const assessment = await db.prepare(`
       SELECT id, title, task_type, time_limit_minutes, status
       FROM assessments
       WHERE job_id = ? AND status = 'published'
@@ -160,14 +165,14 @@ jobRouter.get('/:id', optionalAuth, (req: AuthenticatedRequest, res: Response) =
     let isSaved = false;
 
     if (req.user && req.user.role === 'candidate') {
-      const candidateProfile = db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(req.user.userId) as any;
+      const candidateProfile = (await db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(req.user.userId)) as any;
       if (candidateProfile) {
-        const candidateSkills = db.prepare(`
+        const candidateSkills = (await db.prepare(`
           SELECT s.name, cs.proficiency_level, cs.evidence_source
           FROM candidate_skills cs
           JOIN skills s ON s.id = cs.skill_id
           WHERE cs.candidate_id = ?
-        `).all(candidateProfile.id) as any[];
+        `).all(candidateProfile.id)) as any[];
 
         match = calculateMatchScore(
           {
@@ -190,14 +195,14 @@ jobRouter.get('/:id', optionalAuth, (req: AuthenticatedRequest, res: Response) =
           }
         );
 
-        application = db.prepare(`
+        application = await db.prepare(`
           SELECT a.*, ass.id as assessment_session_id, ass.status as assessment_status
           FROM applications a
           LEFT JOIN assessment_sessions ass ON ass.application_id = a.id
           WHERE a.job_id = ? AND a.candidate_id = ?
         `).get(job.id, candidateProfile.id);
 
-        const saved = db.prepare('SELECT id FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').get(candidateProfile.id, job.id);
+        const saved = await db.prepare('SELECT id FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').get(candidateProfile.id, job.id);
         isSaved = Boolean(saved);
       }
     }
@@ -217,26 +222,26 @@ jobRouter.get('/:id', optionalAuth, (req: AuthenticatedRequest, res: Response) =
   }
 });
 
-jobRouter.post('/:id/apply', requireAuth, requireRole('candidate'), (req: AuthenticatedRequest, res: Response) => {
+jobRouter.post('/:id/apply', requireAuth, requireRole('candidate'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const jobId = req.params.id;
-    const profile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId) as any;
+    const profile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId)) as any;
     if (!profile) {
       res.status(404).json({ error: 'Candidate profile not found' });
       return;
     }
 
-    const job = db.prepare('SELECT id, title, employer_id FROM jobs WHERE id = ?').get(jobId) as any;
+    const job = (await db.prepare('SELECT id, title, employer_id FROM jobs WHERE id = ?').get(jobId)) as any;
     if (!job) {
       res.status(404).json({ error: 'Opportunity not found' });
       return;
     }
 
     // Check existing active application
-    const existing = db.prepare(`
+    const existing = (await db.prepare(`
       SELECT id, status FROM applications
       WHERE job_id = ? AND candidate_id = ?
-    `).get(jobId, profile.id) as any;
+    `).get(jobId, profile.id)) as any;
 
     if (existing && !['rejected', 'withdrawn'].includes(existing.status)) {
       res.status(400).json({
@@ -245,17 +250,17 @@ jobRouter.post('/:id/apply', requireAuth, requireRole('candidate'), (req: Authen
       return;
     }
 
-    const assessment = db.prepare('SELECT id FROM assessments WHERE job_id = ? AND status = "published"').get(jobId) as any;
+    const assessment = (await db.prepare("SELECT id FROM assessments WHERE job_id = ? AND status = 'published'").get(jobId)) as any;
 
     const initialStatus = assessment ? 'assessment_required' : 'applied';
     const applicationId = 'app_' + crypto.randomUUID().slice(0, 8);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO applications (id, job_id, candidate_id, status)
       VALUES (?, ?, ?, ?)
     `).run(applicationId, jobId, profile.id, initialStatus);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO application_status_history (id, application_id, status, notes, changed_by)
       VALUES (?, ?, ?, ?, ?)
     `).run(
@@ -270,16 +275,16 @@ jobRouter.post('/:id/apply', requireAuth, requireRole('candidate'), (req: Authen
     let sessionId = null;
     if (assessment) {
       sessionId = 'ses_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO assessment_sessions (id, assessment_id, candidate_id, application_id, status)
         VALUES (?, ?, ?, ?, 'not_started')
       `).run(sessionId, assessment.id, profile.id, applicationId);
     }
 
     // Notification for employer
-    const empUser = db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(job.employer_id) as any;
+    const empUser = (await db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(job.employer_id)) as any;
     if (empUser) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, link)
         VALUES (?, ?, 'New Candidate Application', ?, ?)
       `).run(
@@ -303,17 +308,17 @@ jobRouter.post('/:id/apply', requireAuth, requireRole('candidate'), (req: Authen
   }
 });
 
-jobRouter.post('/:id/save', requireAuth, requireRole('candidate'), (req: AuthenticatedRequest, res: Response) => {
+jobRouter.post('/:id/save', requireAuth, requireRole('candidate'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const profile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId) as any;
+    const profile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId)) as any;
     const jobId = req.params.id;
 
-    const existing = db.prepare('SELECT id FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').get(profile.id, jobId);
+    const existing = await db.prepare('SELECT id FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').get(profile.id, jobId);
     if (existing) {
-      db.prepare('DELETE FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').run(profile.id, jobId);
+      await db.prepare('DELETE FROM saved_opportunities WHERE candidate_id = ? AND job_id = ?').run(profile.id, jobId);
       res.json({ saved: false, message: 'Removed from saved opportunities' });
     } else {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO saved_opportunities (id, candidate_id, job_id)
         VALUES (?, ?, ?)
       `).run('sav_' + crypto.randomUUID().slice(0, 8), profile.id, jobId);
@@ -324,7 +329,7 @@ jobRouter.post('/:id/save', requireAuth, requireRole('candidate'), (req: Authent
   }
 });
 
-jobRouter.post('/:id/reports', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+jobRouter.post('/:id/reports', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { category, description, evidence_notes } = req.body;
     if (!category || !description) {
@@ -333,15 +338,15 @@ jobRouter.post('/:id/reports', requireAuth, (req: AuthenticatedRequest, res: Res
     }
 
     const reportId = 'rep_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO job_reports (id, job_id, reporter_id, category, description, evidence_notes, status)
       VALUES (?, ?, ?, ?, ?, ?, 'open')
     `).run(reportId, req.params.id, req.user!.userId, category, description, evidence_notes || '');
 
     // Notify all admin users
-    const admins = db.prepare('SELECT id FROM users WHERE role = "admin"').all() as any[];
+    const admins = (await db.prepare("SELECT id FROM users WHERE role = 'admin'").all()) as any[];
     for (const admin of admins) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, link)
         VALUES (?, ?, 'Suspicious Job Report Submitted', ?, ?)
       `).run(

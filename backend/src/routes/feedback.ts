@@ -6,7 +6,7 @@ import { requireRole } from '../middleware/role.js';
 
 export const feedbackRouter = Router();
 
-feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('employer', 'admin'), (req: AuthenticatedRequest, res: Response) => {
+feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('employer', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const applicationId = req.params.id;
     const {
@@ -23,13 +23,13 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
       return;
     }
 
-    const app = db.prepare(`
+    const app = (await db.prepare(`
       SELECT a.*, cp.id as candidate_profile_id, cp.user_id as candidate_user_id, j.title as job_title
       FROM applications a
       JOIN candidate_profiles cp ON cp.id = a.candidate_id
       JOIN jobs j ON j.id = a.job_id
       WHERE a.id = ?
-    `).get(applicationId) as any;
+    `).get(applicationId)) as any;
 
     if (!app) {
       res.status(404).json({ error: 'Application not found' });
@@ -40,7 +40,7 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
     const gapsArray = Array.isArray(skill_gaps) ? skill_gaps : [skill_gaps];
     const resourcesArray = Array.isArray(learning_resources) ? learning_resources : (learning_resources ? [learning_resources] : []);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO candidate_feedback (
         id, application_id, reviewer_id, strengths, skill_gaps, feedback_message, learning_resources, can_reapply
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -56,13 +56,13 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
     );
 
     // Update application status to improvement_suggested
-    db.prepare(`
+    await db.prepare(`
       UPDATE applications
       SET status = 'improvement_suggested', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(applicationId);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO application_status_history (id, application_id, status, notes, changed_by)
       VALUES (?, ?, 'improvement_suggested', 'Detailed constructive feedback and growth roadmap provided.', ?)
     `).run('ash_' + crypto.randomUUID().slice(0, 8), applicationId, req.user!.userId);
@@ -71,7 +71,7 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
     let miniProjectId = null;
     if (mini_project && mini_project.title && mini_project.objective) {
       miniProjectId = 'mp_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO mini_projects (
           id, feedback_id, candidate_id, title, skill_name, objective, requirements, acceptance_criteria, status
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'assigned')
@@ -88,7 +88,7 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
     }
 
     // Notify candidate
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, 'Constructive Feedback & Growth Path Received', ?, ?)
     `).run(
@@ -108,9 +108,9 @@ feedbackRouter.post('/applications/:id/feedback', requireAuth, requireRole('empl
   }
 });
 
-feedbackRouter.get('/mini-projects/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+feedbackRouter.get('/mini-projects/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const project = db.prepare(`
+    const project = (await db.prepare(`
       SELECT mp.*, cf.feedback_message, cf.strengths, cf.can_reapply,
              j.title as job_title, ep.org_name
       FROM mini_projects mp
@@ -119,14 +119,14 @@ feedbackRouter.get('/mini-projects/:id', requireAuth, (req: AuthenticatedRequest
       LEFT JOIN jobs j ON j.id = a.job_id
       LEFT JOIN employer_profiles ep ON ep.id = j.employer_id
       WHERE mp.id = ?
-    `).get(req.params.id) as any;
+    `).get(req.params.id)) as any;
 
     if (!project) {
       res.status(404).json({ error: 'Mini-project not found' });
       return;
     }
 
-    const submissions = db.prepare(`
+    const submissions = await db.prepare(`
       SELECT * FROM mini_project_submissions
       WHERE mini_project_id = ?
       ORDER BY submitted_at DESC
@@ -138,7 +138,7 @@ feedbackRouter.get('/mini-projects/:id', requireAuth, (req: AuthenticatedRequest
   }
 });
 
-feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candidate'), (req: AuthenticatedRequest, res: Response) => {
+feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candidate'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { submission_text, repo_url, explanation } = req.body;
     const miniProjectId = req.params.id;
@@ -148,14 +148,14 @@ feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candi
       return;
     }
 
-    const project = db.prepare(`
+    const project = (await db.prepare(`
       SELECT mp.*, cf.reviewer_id, a.id as application_id, j.title as job_title
       FROM mini_projects mp
       JOIN candidate_feedback cf ON cf.id = mp.feedback_id
       JOIN applications a ON a.id = cf.application_id
       JOIN jobs j ON j.id = a.job_id
       WHERE mp.id = ?
-    `).get(miniProjectId) as any;
+    `).get(miniProjectId)) as any;
 
     if (!project) {
       res.status(404).json({ error: 'Mini-project not found' });
@@ -163,13 +163,13 @@ feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candi
     }
 
     const subId = 'mps_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO mini_project_submissions (
         id, mini_project_id, submission_text, repo_url, explanation, status
       ) VALUES (?, ?, ?, ?, ?, 'under_review')
     `).run(subId, miniProjectId, submission_text, repo_url || '', explanation);
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE mini_projects
       SET status = 'submitted', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -177,7 +177,7 @@ feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candi
 
     // Notify reviewer / employer
     if (project.reviewer_id) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, link)
         VALUES (?, ?, 'Mini-Project Submitted for Verification', ?, ?)
       `).run(
@@ -197,18 +197,17 @@ feedbackRouter.post('/mini-projects/:id/submit', requireAuth, requireRole('candi
   }
 });
 
-feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('employer', 'admin'), (req: AuthenticatedRequest, res: Response) => {
+feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('employer', 'admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const miniProjectId = req.params.id;
     const { status, reviewer_feedback } = req.body;
-    // status: 'accepted' | 'revision_requested' | 'not_demonstrated'
 
     if (!['accepted', 'revision_requested', 'not_demonstrated'].includes(status)) {
       res.status(400).json({ error: 'Invalid review status. Must be accepted, revision_requested, or not_demonstrated' });
       return;
     }
 
-    const project = db.prepare(`
+    const project = (await db.prepare(`
       SELECT mp.*, cp.id as candidate_profile_id, cp.user_id as candidate_user_id,
              cf.application_id, j.id as job_id, j.title as job_title
       FROM mini_projects mp
@@ -217,21 +216,21 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
       LEFT JOIN applications a ON a.id = cf.application_id
       LEFT JOIN jobs j ON j.id = a.job_id
       WHERE mp.id = ?
-    `).get(miniProjectId) as any;
+    `).get(miniProjectId)) as any;
 
     if (!project) {
       res.status(404).json({ error: 'Mini-project not found' });
       return;
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE mini_projects
       SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(status, miniProjectId);
 
     // Update latest submission
-    db.prepare(`
+    await db.prepare(`
       UPDATE mini_project_submissions
       SET status = ?, reviewer_feedback = ?, reviewed_at = CURRENT_TIMESTAMP
       WHERE mini_project_id = ?
@@ -240,7 +239,7 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
     // If accepted: automatically attach to candidate profile evidence!
     if (status === 'accepted') {
       const evidenceId = 'evd_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO profile_evidence (id, candidate_id, skill_name, title, description, mini_project_id)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(
@@ -253,19 +252,19 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
       );
 
       // Upgrade candidate skill to project_verified
-      let skillRow = db.prepare('SELECT id FROM skills WHERE LOWER(name) = LOWER(?)').get(project.skill_name.trim()) as any;
+      let skillRow = (await db.prepare('SELECT id FROM skills WHERE LOWER(name) = LOWER(?)').get(project.skill_name.trim())) as any;
       if (!skillRow) {
         const sId = 'skl_' + crypto.randomUUID().slice(0, 8);
-        db.prepare('INSERT INTO skills (id, name, category) VALUES (?, ?, ?)').run(sId, project.skill_name.trim(), 'Verified');
+        await db.prepare('INSERT INTO skills (id, name, category) VALUES (?, ?, ?)').run(sId, project.skill_name.trim(), 'Verified');
         skillRow = { id: sId };
       }
 
-      const existingCandSkill = db.prepare(`
+      const existingCandSkill = (await db.prepare(`
         SELECT id FROM candidate_skills WHERE candidate_id = ? AND skill_id = ?
-      `).get(project.candidate_profile_id, skillRow.id) as any;
+      `).get(project.candidate_profile_id, skillRow.id)) as any;
 
       if (existingCandSkill) {
-        db.prepare(`
+        await db.prepare(`
           UPDATE candidate_skills
           SET proficiency_level = 'advanced',
               evidence_source = 'project_verified',
@@ -273,7 +272,7 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
           WHERE id = ?
         `).run(existingCandSkill.id);
       } else {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO candidate_skills (id, candidate_id, skill_id, proficiency_level, evidence_source, verified_at)
           VALUES (?, ?, ?, 'advanced', 'project_verified', CURRENT_TIMESTAMP)
         `).run('csk_' + crypto.randomUUID().slice(0, 8), project.candidate_profile_id, skillRow.id);
@@ -281,7 +280,7 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
     }
 
     // Notify candidate
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, ?, ?, ?)
     `).run(
@@ -304,18 +303,18 @@ feedbackRouter.post('/mini-projects/:id/review', requireAuth, requireRole('emplo
   }
 });
 
-feedbackRouter.post('/applications/:id/reapply', requireAuth, requireRole('candidate'), (req: AuthenticatedRequest, res: Response) => {
+feedbackRouter.post('/applications/:id/reapply', requireAuth, requireRole('candidate'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const applicationId = req.params.id;
     const { note } = req.body;
 
-    const previousApp = db.prepare(`
+    const previousApp = (await db.prepare(`
       SELECT a.*, j.title as job_title, j.employer_id, cp.id as candidate_profile_id
       FROM applications a
       JOIN jobs j ON j.id = a.job_id
       JOIN candidate_profiles cp ON cp.id = a.candidate_id
       WHERE a.id = ?
-    `).get(applicationId) as any;
+    `).get(applicationId)) as any;
 
     if (!previousApp) {
       res.status(404).json({ error: 'Original application not found' });
@@ -323,22 +322,23 @@ feedbackRouter.post('/applications/:id/reapply', requireAuth, requireRole('candi
     }
 
     // Check if feedback permits reapplication
-    const feedback = db.prepare('SELECT * FROM candidate_feedback WHERE application_id = ?').get(applicationId) as any;
+    const feedback = (await db.prepare('SELECT * FROM candidate_feedback WHERE application_id = ?').get(applicationId)) as any;
     if (feedback && feedback.can_reapply === 0) {
       res.status(400).json({ error: 'This opportunity does not currently permit reapplication.' });
       return;
     }
 
     // Check completed evidence
-    const completedProjects = db.prepare(`
+    const completedProjects = (await db.prepare(`
       SELECT COUNT(*) as count FROM mini_projects
       WHERE candidate_id = ? AND status = 'accepted'
-    `).get(previousApp.candidate_profile_id) as any;
+    `).get(previousApp.candidate_profile_id)) as any;
 
+    const completedCount = Number(completedProjects?.count || 0);
     const newAppId = 'app_' + crypto.randomUUID().slice(0, 8);
     const reapplyCount = (previousApp.reapplication_count || 0) + 1;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO applications (
         id, job_id, candidate_id, status, reapplication_count, previous_application_id
       ) VALUES (?, ?, ?, 'under_review', ?, ?)
@@ -350,20 +350,20 @@ feedbackRouter.post('/applications/:id/reapply', requireAuth, requireRole('candi
       previousApp.id
     );
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO application_status_history (id, application_id, status, notes, changed_by)
       VALUES (?, ?, 'under_review', ?, ?)
     `).run(
       'ash_' + crypto.randomUUID().slice(0, 8),
       newAppId,
-      `Evidence-based reapplication (Iteration #${reapplyCount}). ${completedProjects.count} verified practical projects attached. Note: ${note || 'Updated profile with verified project evidence.'}`,
+      `Evidence-based reapplication (Iteration #${reapplyCount}). ${completedCount} verified practical projects attached. Note: ${note || 'Updated profile with verified project evidence.'}`,
       req.user!.userId
     );
 
     // Notify employer
-    const empUser = db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(previousApp.employer_id) as any;
+    const empUser = (await db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(previousApp.employer_id)) as any;
     if (empUser) {
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO notifications (id, user_id, title, message, link)
         VALUES (?, ?, 'Evidence-Based Reapplication Received', ?, ?)
       `).run(

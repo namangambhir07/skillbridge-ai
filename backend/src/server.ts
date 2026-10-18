@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { initDatabase } from './db/database.js';
+import { initDatabase, checkDatabaseHealth } from './db/database.js';
 import { authRouter } from './routes/auth.js';
 import { candidateRouter } from './routes/candidates.js';
 import { jobRouter } from './routes/jobs.js';
@@ -14,8 +14,10 @@ import { notificationRouter } from './routes/notifications.js';
 
 dotenv.config();
 
-// Initialize SQLite database schema
-initDatabase();
+// Initialize PostgreSQL database schema asynchronously
+initDatabase().catch((err) => {
+  console.error('[Startup Database Error]: Failed to initialize database schema:', err.message);
+});
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -47,14 +49,19 @@ app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/community', communityRouter);
 app.use('/api/v1/notifications', notificationRouter);
 
-// Health check
-app.get('/api/v1/health', (_req: Request, res: Response) => {
-  res.json({
-    status: 'healthy',
+// Health check with database connectivity probe
+app.get('/api/v1/health', async (_req: Request, res: Response) => {
+  const dbHealth = await checkDatabaseHealth();
+  const statusCode = dbHealth.healthy ? 200 : 503;
+  res.status(statusCode).json({
+    status: dbHealth.healthy ? 'healthy' : 'degraded',
+    database: dbHealth.healthy ? 'connected' : 'disconnected',
+    databaseType: dbHealth.type,
     product: 'SkillBridge AI',
     tagline: 'Better Matches. Faster Hiring. Real Opportunities.',
     assessmentEngine: 'Trace',
     timestamp: new Date().toISOString(),
+    ...(dbHealth.error ? { databaseError: dbHealth.error } : {}),
   });
 });
 
@@ -67,7 +74,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   app.listen(port, () => {
     console.log(`=========================================`);
     console.log(`SkillBridge AI Backend Service Running`);

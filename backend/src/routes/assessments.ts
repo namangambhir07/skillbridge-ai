@@ -6,9 +6,9 @@ import { evaluateAdaptation } from '../services/adaptationEvaluator.js';
 
 export const assessmentRouter = Router();
 
-assessmentRouter.get('/templates', (_req, res) => {
+assessmentRouter.get('/templates', async (_req, res) => {
   try {
-    const templates = db.prepare(`
+    const templates = await db.prepare(`
       SELECT * FROM assessments WHERE job_id IS NULL OR status = 'published'
     `).all();
     res.json({ templates });
@@ -17,9 +17,9 @@ assessmentRouter.get('/templates', (_req, res) => {
   }
 });
 
-assessmentRouter.get('/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.get('/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const assessment = db.prepare('SELECT * FROM assessments WHERE id = ?').get(req.params.id) as any;
+    const assessment = (await db.prepare('SELECT * FROM assessments WHERE id = ?').get(req.params.id)) as any;
     if (!assessment) {
       res.status(404).json({ error: 'Assessment not found' });
       return;
@@ -27,7 +27,7 @@ assessmentRouter.get('/:id', requireAuth, (req: AuthenticatedRequest, res: Respo
 
     let job = null;
     if (assessment.job_id) {
-      job = db.prepare(`
+      job = await db.prepare(`
         SELECT j.id, j.title, ep.org_name
         FROM jobs j
         JOIN employer_profiles ep ON ep.id = j.employer_id
@@ -41,37 +41,37 @@ assessmentRouter.get('/:id', requireAuth, (req: AuthenticatedRequest, res: Respo
   }
 });
 
-assessmentRouter.post('/:id/sessions', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.post('/:id/sessions', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const assessmentId = req.params.id;
     const { applicationId } = req.body;
 
-    const candProfile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId) as any;
+    const candProfile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId)) as any;
     if (!candProfile) {
       res.status(403).json({ error: 'Only candidates can start assessment sessions' });
       return;
     }
 
     // Check if session already exists
-    let session = db.prepare(`
+    let session = (await db.prepare(`
       SELECT * FROM assessment_sessions
       WHERE assessment_id = ? AND candidate_id = ?
-    `).get(assessmentId, candProfile.id) as any;
+    `).get(assessmentId, candProfile.id)) as any;
 
     if (!session) {
       const sessionId = 'ses_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO assessment_sessions (id, assessment_id, candidate_id, application_id, status)
         VALUES (?, ?, ?, ?, 'not_started')
       `).run(sessionId, assessmentId, candProfile.id, applicationId || null);
 
-      session = db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId);
+      session = await db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId);
     }
 
-    const assessment = db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessmentId);
+    const assessment = await db.prepare('SELECT * FROM assessments WHERE id = ?').get(assessmentId);
 
     // Fetch initial and revision submissions if any
-    const submissions = db.prepare(`
+    const submissions = await db.prepare(`
       SELECT * FROM assessment_submissions WHERE session_id = ? ORDER BY submitted_at ASC
     `).all(session.id);
 
@@ -81,17 +81,17 @@ assessmentRouter.post('/:id/sessions', requireAuth, (req: AuthenticatedRequest, 
   }
 });
 
-assessmentRouter.post('/sessions/:id/consent', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.post('/sessions/:id/consent', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
-    const session = db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId) as any;
+    const session = (await db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId)) as any;
 
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE assessment_sessions
       SET consent_accepted_at = CURRENT_TIMESTAMP,
           started_at = COALESCE(started_at, CURRENT_TIMESTAMP),
@@ -100,9 +100,10 @@ assessmentRouter.post('/sessions/:id/consent', requireAuth, (req: AuthenticatedR
     `).run(sessionId);
 
     // Log telemetry event for consent
-    const nextSeq = ((db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId) as any)?.max_seq || 0) + 1;
+    const maxSeqRow = (await db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId)) as any;
+    const nextSeq = Number(maxSeqRow?.max_seq || 0) + 1;
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO telemetry_events (id, session_id, event_type, metadata, event_sequence)
       VALUES (?, ?, 'consent_accepted', ?, ?)
     `).run(
@@ -118,12 +119,12 @@ assessmentRouter.post('/sessions/:id/consent', requireAuth, (req: AuthenticatedR
   }
 });
 
-assessmentRouter.post('/sessions/:id/events', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.post('/sessions/:id/events', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
     const { event_type, metadata } = req.body;
 
-    const session = db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId) as any;
+    const session = (await db.prepare('SELECT * FROM assessment_sessions WHERE id = ?').get(sessionId)) as any;
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
       return;
@@ -134,7 +135,8 @@ assessmentRouter.post('/sessions/:id/events', requireAuth, (req: AuthenticatedRe
       return;
     }
 
-    const nextSeq = ((db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId) as any)?.max_seq || 0) + 1;
+    const maxSeqRow = (await db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId)) as any;
+    const nextSeq = Number(maxSeqRow?.max_seq || 0) + 1;
 
     // Filter safe metadata only (no full clipboard or invasive details)
     const safeMetadata = {
@@ -144,20 +146,20 @@ assessmentRouter.post('/sessions/:id/events', requireAuth, (req: AuthenticatedRe
       pasteLength: metadata?.pasteLength || 0,
     };
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO telemetry_events (id, session_id, event_type, metadata, event_sequence)
       VALUES (?, ?, ?, ?, ?)
     `).run('tel_' + crypto.randomUUID().slice(0, 8), sessionId, event_type, JSON.stringify(safeMetadata), nextSeq);
 
     // Increment session counters
     if (event_type === 'paste_event') {
-      db.prepare('UPDATE assessment_sessions SET paste_count = paste_count + 1 WHERE id = ?').run(sessionId);
+      await db.prepare('UPDATE assessment_sessions SET paste_count = paste_count + 1 WHERE id = ?').run(sessionId);
     } else if (event_type === 'editor_change') {
-      db.prepare('UPDATE assessment_sessions SET edit_count = edit_count + 1 WHERE id = ?').run(sessionId);
+      await db.prepare('UPDATE assessment_sessions SET edit_count = edit_count + 1 WHERE id = ?').run(sessionId);
     }
 
     if (metadata?.elapsedSeconds) {
-      db.prepare('UPDATE assessment_sessions SET elapsed_seconds = ? WHERE id = ?').run(metadata.elapsedSeconds, sessionId);
+      await db.prepare('UPDATE assessment_sessions SET elapsed_seconds = ? WHERE id = ?').run(metadata.elapsedSeconds, sessionId);
     }
 
     res.json({ received: true, eventSequence: nextSeq });
@@ -166,7 +168,7 @@ assessmentRouter.post('/sessions/:id/events', requireAuth, (req: AuthenticatedRe
   }
 });
 
-assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
     const { content, elapsedSeconds } = req.body;
@@ -176,12 +178,12 @@ assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, (req: Aut
       return;
     }
 
-    const session = db.prepare(`
+    const session = (await db.prepare(`
       SELECT ass.*, a.follow_up_prompt
       FROM assessment_sessions ass
       JOIN assessments a ON a.id = ass.assessment_id
       WHERE ass.id = ?
-    `).get(sessionId) as any;
+    `).get(sessionId)) as any;
 
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
@@ -190,13 +192,13 @@ assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, (req: Aut
 
     // Save initial submission
     const subId = 'sub_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO assessment_submissions (id, session_id, submission_type, content)
       VALUES (?, ?, 'initial', ?)
     `).run(subId, sessionId, content);
 
     // Update session state to follow_up_active
-    db.prepare(`
+    await db.prepare(`
       UPDATE assessment_sessions
       SET status = 'follow_up_active',
           elapsed_seconds = COALESCE(?, elapsed_seconds)
@@ -204,8 +206,9 @@ assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, (req: Aut
     `).run(elapsedSeconds || null, sessionId);
 
     // Log telemetry
-    const nextSeq = ((db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId) as any)?.max_seq || 0) + 1;
-    db.prepare(`
+    const maxSeqRow = (await db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId)) as any;
+    const nextSeq = Number(maxSeqRow?.max_seq || 0) + 1;
+    await db.prepare(`
       INSERT INTO telemetry_events (id, session_id, event_type, metadata, event_sequence)
       VALUES (?, ?, 'initial_submit', ?, ?)
     `).run('tel_' + crypto.randomUUID().slice(0, 8), sessionId, JSON.stringify({ length: content.length }), nextSeq);
@@ -221,7 +224,7 @@ assessmentRouter.post('/sessions/:id/initial-submission', requireAuth, (req: Aut
   }
 });
 
-assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
     const { content, candidate_explanation, elapsedSeconds } = req.body;
@@ -231,28 +234,28 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
       return;
     }
 
-    const session = db.prepare(`
+    const session = (await db.prepare(`
       SELECT ass.*, a.follow_up_prompt, a.title as assessment_title, a.job_id
       FROM assessment_sessions ass
       JOIN assessments a ON a.id = ass.assessment_id
       WHERE ass.id = ?
-    `).get(sessionId) as any;
+    `).get(sessionId)) as any;
 
     if (!session) {
       res.status(404).json({ error: 'Session not found' });
       return;
     }
 
-    const initialSub = db.prepare(`
+    const initialSub = (await db.prepare(`
       SELECT content FROM assessment_submissions
       WHERE session_id = ? AND submission_type = 'initial'
-    `).get(sessionId) as any;
+    `).get(sessionId)) as any;
 
     const initialContent = initialSub ? initialSub.content : '';
 
     // Save revision submission
     const subId = 'sub_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO assessment_submissions (id, session_id, submission_type, content, candidate_explanation)
       VALUES (?, ?, 'revision', ?, ?)
     `).run(subId, sessionId, content, candidate_explanation);
@@ -265,12 +268,19 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
       session.follow_up_prompt
     );
 
-    // Persist evaluation
-    db.prepare(`
-      INSERT OR REPLACE INTO adaptation_evaluations (
+    // Persist evaluation with standard PostgreSQL ON CONFLICT clause
+    await db.prepare(`
+      INSERT INTO adaptation_evaluations (
         id, session_id, addresses_requirement, relevance_score, explanation_quality,
         rubric_breakdown, feedback_summary
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (session_id) DO UPDATE SET
+        addresses_requirement = EXCLUDED.addresses_requirement,
+        relevance_score = EXCLUDED.relevance_score,
+        explanation_quality = EXCLUDED.explanation_quality,
+        rubric_breakdown = EXCLUDED.rubric_breakdown,
+        feedback_summary = EXCLUDED.feedback_summary,
+        evaluated_at = CURRENT_TIMESTAMP
     `).run(
       'eva_' + crypto.randomUUID().slice(0, 8),
       sessionId,
@@ -282,7 +292,7 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
     );
 
     // Mark session completed
-    db.prepare(`
+    await db.prepare(`
       UPDATE assessment_sessions
       SET status = 'completed',
           completed_at = CURRENT_TIMESTAMP,
@@ -292,24 +302,24 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
 
     // Update application status to assessment_submitted if linked
     if (session.application_id) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE applications
         SET status = 'assessment_submitted', updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(session.application_id);
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO application_status_history (id, application_id, status, notes, changed_by)
         VALUES (?, ?, 'assessment_submitted', 'Candidate completed Trace assessment and dynamic follow-up revision.', ?)
       `).run('ash_' + crypto.randomUUID().slice(0, 8), session.application_id, req.user!.userId);
 
       // Notify employer
       if (session.job_id) {
-        const job = db.prepare('SELECT employer_id, title FROM jobs WHERE id = ?').get(session.job_id) as any;
+        const job = (await db.prepare('SELECT employer_id, title FROM jobs WHERE id = ?').get(session.job_id)) as any;
         if (job) {
-          const empUser = db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(job.employer_id) as any;
+          const empUser = (await db.prepare('SELECT user_id FROM employer_profiles WHERE id = ?').get(job.employer_id)) as any;
           if (empUser) {
-            db.prepare(`
+            await db.prepare(`
               INSERT INTO notifications (id, user_id, title, message, link)
               VALUES (?, ?, 'Assessment Evidence Ready for Review', ?, ?)
             `).run(
@@ -324,8 +334,9 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
     }
 
     // Log revision telemetry
-    const nextSeq = ((db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId) as any)?.max_seq || 0) + 1;
-    db.prepare(`
+    const maxSeqRow = (await db.prepare('SELECT MAX(event_sequence) as max_seq FROM telemetry_events WHERE session_id = ?').get(sessionId)) as any;
+    const nextSeq = Number(maxSeqRow?.max_seq || 0) + 1;
+    await db.prepare(`
       INSERT INTO telemetry_events (id, session_id, event_type, metadata, event_sequence)
       VALUES (?, ?, 'revision_submit', ?, ?)
     `).run('tel_' + crypto.randomUUID().slice(0, 8), sessionId, JSON.stringify({ length: content.length, explanationLength: candidate_explanation.length }), nextSeq);
@@ -340,10 +351,10 @@ assessmentRouter.post('/sessions/:id/revision-submission', requireAuth, (req: Au
   }
 });
 
-assessmentRouter.get('/sessions/:id/report', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+assessmentRouter.get('/sessions/:id/report', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const sessionId = req.params.id;
-    const session = db.prepare(`
+    const session = (await db.prepare(`
       SELECT ass.*, a.title as assessment_title, a.task_type, a.initial_prompt, a.follow_up_prompt,
              a.evaluation_criteria, a.job_id,
              u.name as candidate_name, u.email as candidate_email,
@@ -356,7 +367,7 @@ assessmentRouter.get('/sessions/:id/report', requireAuth, (req: AuthenticatedReq
       LEFT JOIN jobs j ON j.id = a.job_id
       LEFT JOIN employer_profiles ep ON ep.id = j.employer_id
       WHERE ass.id = ?
-    `).get(sessionId) as any;
+    `).get(sessionId)) as any;
 
     if (!session) {
       res.status(404).json({ error: 'Assessment report not found' });
@@ -364,15 +375,15 @@ assessmentRouter.get('/sessions/:id/report', requireAuth, (req: AuthenticatedReq
     }
 
     // Submissions
-    const submissions = db.prepare(`
+    const submissions = (await db.prepare(`
       SELECT * FROM assessment_submissions WHERE session_id = ? ORDER BY submitted_at ASC
-    `).all(sessionId) as any[];
+    `).all(sessionId)) as any[];
 
     const initialSubmission = submissions.find((s) => s.submission_type === 'initial');
     const revisionSubmission = submissions.find((s) => s.submission_type === 'revision');
 
     // Telemetry events
-    const timeline = db.prepare(`
+    const timeline = await db.prepare(`
       SELECT id, event_type, metadata, event_sequence, created_at
       FROM telemetry_events
       WHERE session_id = ?
@@ -380,9 +391,9 @@ assessmentRouter.get('/sessions/:id/report', requireAuth, (req: AuthenticatedReq
     `).all(sessionId);
 
     // Adaptation evaluation
-    const evaluation = db.prepare(`
+    const evaluation = (await db.prepare(`
       SELECT * FROM adaptation_evaluations WHERE session_id = ?
-    `).get(sessionId) as any;
+    `).get(sessionId)) as any;
 
     let rubricBreakdown = [];
     if (evaluation && evaluation.rubric_breakdown) {
@@ -396,7 +407,7 @@ assessmentRouter.get('/sessions/:id/report', requireAuth, (req: AuthenticatedReq
     // Associated feedback if already provided
     let feedback = null;
     if (session.application_id) {
-      feedback = db.prepare(`
+      feedback = await db.prepare(`
         SELECT cf.*, u.name as reviewer_name
         FROM candidate_feedback cf
         JOIN users u ON u.id = cf.reviewer_id

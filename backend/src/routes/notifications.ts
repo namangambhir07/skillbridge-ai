@@ -4,19 +4,21 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 
 export const notificationRouter = Router();
 
-notificationRouter.get('/', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+notificationRouter.get('/', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const notifications = db.prepare(`
+    const notifications = await db.prepare(`
       SELECT * FROM notifications
       WHERE user_id = ?
       ORDER BY created_at DESC
       LIMIT 50
     `).all(req.user!.userId);
 
-    const unreadCount = (db.prepare(`
+    const unreadCountRow = (await db.prepare(`
       SELECT COUNT(*) as count FROM notifications
       WHERE user_id = ? AND is_read = 0
-    `).get(req.user!.userId) as any).count;
+    `).get(req.user!.userId)) as any;
+
+    const unreadCount = unreadCountRow?.count ? Number(unreadCountRow.count) : 0;
 
     res.json({ notifications, unreadCount });
   } catch (err: any) {
@@ -24,9 +26,9 @@ notificationRouter.get('/', requireAuth, (req: AuthenticatedRequest, res: Respon
   }
 });
 
-notificationRouter.patch('/:id/read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+notificationRouter.patch('/:id/read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    db.prepare(`
+    await db.prepare(`
       UPDATE notifications
       SET is_read = 1
       WHERE id = ? AND user_id = ?
@@ -38,9 +40,9 @@ notificationRouter.patch('/:id/read', requireAuth, (req: AuthenticatedRequest, r
   }
 });
 
-notificationRouter.post('/mark-all-read', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+notificationRouter.post('/mark-all-read', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    db.prepare(`
+    await db.prepare(`
       UPDATE notifications
       SET is_read = 1
       WHERE user_id = ?

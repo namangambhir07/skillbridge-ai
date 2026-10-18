@@ -6,16 +6,16 @@ import { requireRole } from '../middleware/role.js';
 
 export const adminRouter = Router();
 
-adminRouter.get('/stats', requireAuth, requireRole('admin'), (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/stats', requireAuth, requireRole('admin'), async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const totalUsers = (db.prepare('SELECT COUNT(*) as c FROM users').get() as any).c;
-    const candidates = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'candidate'").get() as any).c;
-    const employers = (db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'employer'").get() as any).c;
-    const totalJobs = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
-    const pendingVerifications = (db.prepare("SELECT COUNT(*) as c FROM employer_verifications WHERE status = 'pending_review'").get() as any).c;
-    const openReports = (db.prepare("SELECT COUNT(*) as c FROM job_reports WHERE status = 'open'").get() as any).c;
-    const completedAssessments = (db.prepare("SELECT COUNT(*) as c FROM assessment_sessions WHERE status = 'completed'").get() as any).c;
-    const completedMiniProjects = (db.prepare("SELECT COUNT(*) as c FROM mini_projects WHERE status = 'accepted'").get() as any).c;
+    const totalUsers = Number(((await db.prepare('SELECT COUNT(*) as c FROM users').get()) as any)?.c || 0);
+    const candidates = Number(((await db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'candidate'").get()) as any)?.c || 0);
+    const employers = Number(((await db.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'employer'").get()) as any)?.c || 0);
+    const totalJobs = Number(((await db.prepare('SELECT COUNT(*) as c FROM jobs').get()) as any)?.c || 0);
+    const pendingVerifications = Number(((await db.prepare("SELECT COUNT(*) as c FROM employer_verifications WHERE status = 'pending_review'").get()) as any)?.c || 0);
+    const openReports = Number(((await db.prepare("SELECT COUNT(*) as c FROM job_reports WHERE status = 'open'").get()) as any)?.c || 0);
+    const completedAssessments = Number(((await db.prepare("SELECT COUNT(*) as c FROM assessment_sessions WHERE status = 'completed'").get()) as any)?.c || 0);
+    const completedMiniProjects = Number(((await db.prepare("SELECT COUNT(*) as c FROM mini_projects WHERE status = 'accepted'").get()) as any)?.c || 0);
 
     res.json({
       totalUsers,
@@ -32,9 +32,9 @@ adminRouter.get('/stats', requireAuth, requireRole('admin'), (_req: Authenticate
   }
 });
 
-adminRouter.get('/verifications', requireAuth, requireRole('admin'), (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/verifications', requireAuth, requireRole('admin'), async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const list = db.prepare(`
+    const list = await db.prepare(`
       SELECT ev.*, ep.org_name, ep.org_website, ep.business_email, ep.description,
              u.name as owner_name, u.email as owner_email
       FROM employer_verifications ev
@@ -48,29 +48,28 @@ adminRouter.get('/verifications', requireAuth, requireRole('admin'), (_req: Auth
   }
 });
 
-adminRouter.patch('/verifications/:id', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+adminRouter.patch('/verifications/:id', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, reviewer_notes } = req.body;
-    // status: 'verified' | 'rejected' | 'additional_info_required' | 'pending_review'
 
     if (!['verified', 'rejected', 'additional_info_required', 'pending_review'].includes(status)) {
       res.status(400).json({ error: 'Invalid verification status' });
       return;
     }
 
-    const verification = db.prepare(`
+    const verification = (await db.prepare(`
       SELECT ev.*, ep.org_name, ep.user_id
       FROM employer_verifications ev
       JOIN employer_profiles ep ON ep.id = ev.employer_id
       WHERE ev.id = ?
-    `).get(req.params.id) as any;
+    `).get(req.params.id)) as any;
 
     if (!verification) {
       res.status(404).json({ error: 'Verification record not found' });
       return;
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE employer_verifications
       SET status = ?,
           reviewer_notes = ?,
@@ -81,7 +80,7 @@ adminRouter.patch('/verifications/:id', requireAuth, requireRole('admin'), (req:
     `).run(status, reviewer_notes || '', req.user!.userId, req.params.id);
 
     // Audit log
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO audit_logs (id, user_id, action, target_type, target_id, details)
       VALUES (?, ?, 'employer_verification_review', 'employer_verification', ?, ?)
     `).run(
@@ -92,7 +91,7 @@ adminRouter.patch('/verifications/:id', requireAuth, requireRole('admin'), (req:
     );
 
     // Notify employer
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, 'Employer Verification Status Update', ?, ?)
     `).run(
@@ -108,9 +107,9 @@ adminRouter.patch('/verifications/:id', requireAuth, requireRole('admin'), (req:
   }
 });
 
-adminRouter.get('/reports', requireAuth, requireRole('admin'), (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/reports', requireAuth, requireRole('admin'), async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const reports = db.prepare(`
+    const reports = await db.prepare(`
       SELECT jr.*, j.title as job_title, j.status as job_status, ep.org_name,
              u.name as reporter_name, u.email as reporter_email
       FROM job_reports jr
@@ -126,23 +125,22 @@ adminRouter.get('/reports', requireAuth, requireRole('admin'), (_req: Authentica
   }
 });
 
-adminRouter.patch('/reports/:id', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+adminRouter.patch('/reports/:id', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, moderator_notes, suspend_job } = req.body;
-    // status: 'under_review' | 'action_taken' | 'dismissed'
 
     if (!['open', 'under_review', 'action_taken', 'dismissed'].includes(status)) {
       res.status(400).json({ error: 'Invalid report status' });
       return;
     }
 
-    const report = db.prepare('SELECT * FROM job_reports WHERE id = ?').get(req.params.id) as any;
+    const report = (await db.prepare('SELECT * FROM job_reports WHERE id = ?').get(req.params.id)) as any;
     if (!report) {
       res.status(404).json({ error: 'Report not found' });
       return;
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE job_reports
       SET status = ?,
           moderator_notes = ?,
@@ -152,11 +150,11 @@ adminRouter.patch('/reports/:id', requireAuth, requireRole('admin'), (req: Authe
     `).run(status, moderator_notes || '', req.user!.userId, req.params.id);
 
     if (suspend_job) {
-      db.prepare(`UPDATE jobs SET status = 'suspended' WHERE id = ?`).run(report.job_id);
+      await db.prepare(`UPDATE jobs SET status = 'suspended' WHERE id = ?`).run(report.job_id);
     }
 
     // Audit log
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO audit_logs (id, user_id, action, target_type, target_id, details)
       VALUES (?, ?, 'job_report_moderation', 'job_report', ?, ?)
     `).run(
@@ -172,14 +170,14 @@ adminRouter.patch('/reports/:id', requireAuth, requireRole('admin'), (req: Authe
   }
 });
 
-adminRouter.post('/jobs/:id/suspend', requireAuth, requireRole('admin'), (req: AuthenticatedRequest, res: Response) => {
+adminRouter.post('/jobs/:id/suspend', requireAuth, requireRole('admin'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { action } = req.body; // 'suspend' | 'reinstate'
+    const { action } = req.body;
     const newStatus = action === 'reinstate' ? 'published' : 'suspended';
 
-    db.prepare('UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, req.params.id);
+    await db.prepare('UPDATE jobs SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStatus, req.params.id);
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO audit_logs (id, user_id, action, target_type, target_id, details)
       VALUES (?, ?, 'job_status_change', 'job', ?, ?)
     `).run(
@@ -195,9 +193,9 @@ adminRouter.post('/jobs/:id/suspend', requireAuth, requireRole('admin'), (req: A
   }
 });
 
-adminRouter.get('/audit-logs', requireAuth, requireRole('admin'), (_req: AuthenticatedRequest, res: Response) => {
+adminRouter.get('/audit-logs', requireAuth, requireRole('admin'), async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const logs = db.prepare(`
+    const logs = await db.prepare(`
       SELECT al.*, u.name as user_name, u.email as user_email
       FROM audit_logs al
       LEFT JOIN users u ON u.id = al.user_id

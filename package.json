@@ -4,6 +4,7 @@
   "description": "SkillBridge AI - Better Matches. Faster Hiring. Real Opportunities.",
   "scripts": {
     "setup": "npm --prefix backend install && npm --prefix frontend install && npm run seed",
+    "migrate": "npm --prefix backend run migrate",
     "seed": "npm --prefix backend run seed",
     "dev:backend": "npm --prefix backend run dev",
     "dev:frontend": "npm --prefix frontend run dev",

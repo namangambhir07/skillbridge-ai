@@ -21,7 +21,7 @@ const loginSchema = z.object({
   password: z.string(),
 });
 
-authRouter.post('/register', (req: Request, res: Response) => {
+authRouter.post('/register', async (req: Request, res: Response) => {
   try {
     const parse = registerSchema.safeParse(req.body);
     if (!parse.success) {
@@ -31,7 +31,7 @@ authRouter.post('/register', (req: Request, res: Response) => {
 
     const { email, password, name, role, orgName, headline } = parse.data;
 
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existing) {
       res.status(400).json({ error: 'Email already registered' });
       return;
@@ -45,30 +45,30 @@ authRouter.post('/register', (req: Request, res: Response) => {
       VALUES (?, ?, ?, ?, ?)
     `);
 
-    insertUser.run(userId, email, passwordHash, role, name);
+    await insertUser.run(userId, email, passwordHash, role, name);
 
     // Create role-specific profile
     if (role === 'candidate') {
       const candId = 'cand_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO candidate_profiles (id, user_id, headline, bio, preferred_work_mode, availability)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(candId, userId, headline || 'Aspiring Professional', 'Eager to learn and contribute.', 'remote', 'Immediate');
     } else if (role === 'employer') {
       const empId = 'emp_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO employer_profiles (id, user_id, org_name, description)
         VALUES (?, ?, ?, ?)
       `).run(empId, userId, orgName || `${name}'s Company`, 'Fast-growing technology team.');
 
       // Initialize verification record
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO employer_verifications (id, employer_id, status)
         VALUES (?, ?, 'not_submitted')
       `).run('ver_' + crypto.randomUUID().slice(0, 8), empId);
     } else if (role === 'mentor') {
       const mentorId = 'men_' + crypto.randomUUID().slice(0, 8);
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO mentors (id, user_id, headline, expertise, skills, experience_years, bio, availability)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
@@ -105,7 +105,7 @@ authRouter.post('/register', (req: Request, res: Response) => {
   }
 });
 
-authRouter.post('/login', (req: Request, res: Response) => {
+authRouter.post('/login', async (req: Request, res: Response) => {
   try {
     const parse = loginSchema.safeParse(req.body);
     if (!parse.success) {
@@ -114,7 +114,7 @@ authRouter.post('/login', (req: Request, res: Response) => {
     }
 
     const { email, password } = parse.data;
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
+    const user = (await db.prepare('SELECT * FROM users WHERE email = ?').get(email)) as any;
 
     if (!user || !comparePassword(password, user.password_hash)) {
       res.status(401).json({ error: 'Invalid email or password' });
@@ -130,16 +130,16 @@ authRouter.post('/login', (req: Request, res: Response) => {
 
     let profileData = null;
     if (user.role === 'candidate') {
-      profileData = db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(user.id);
+      profileData = await db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(user.id);
     } else if (user.role === 'employer') {
-      profileData = db.prepare(`
+      profileData = await db.prepare(`
         SELECT ep.*, ev.status as verification_status
         FROM employer_profiles ep
         LEFT JOIN employer_verifications ev ON ev.employer_id = ep.id
         WHERE ep.user_id = ?
       `).get(user.id);
     } else if (user.role === 'mentor') {
-      profileData = db.prepare('SELECT * FROM mentors WHERE user_id = ?').get(user.id);
+      profileData = await db.prepare('SELECT * FROM mentors WHERE user_id = ?').get(user.id);
     }
 
     res.json({
@@ -158,9 +158,9 @@ authRouter.post('/login', (req: Request, res: Response) => {
   }
 });
 
-authRouter.get('/me', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+authRouter.get('/me', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const user = db.prepare('SELECT id, email, name, role, created_at FROM users WHERE id = ?').get(req.user!.userId) as any;
+    const user = (await db.prepare('SELECT id, email, name, role, created_at FROM users WHERE id = ?').get(req.user!.userId)) as any;
     if (!user) {
       res.status(404).json({ error: 'User not found' });
       return;
@@ -168,9 +168,9 @@ authRouter.get('/me', requireAuth, (req: AuthenticatedRequest, res: Response) =>
 
     let profile = null;
     if (user.role === 'candidate') {
-      profile = db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(user.id) as any;
+      profile = (await db.prepare('SELECT * FROM candidate_profiles WHERE user_id = ?').get(user.id)) as any;
       if (profile) {
-        const skills = db.prepare(`
+        const skills = await db.prepare(`
           SELECT cs.id, s.name, cs.proficiency_level, cs.evidence_source, cs.verified_at
           FROM candidate_skills cs
           JOIN skills s ON s.id = cs.skill_id
@@ -179,14 +179,14 @@ authRouter.get('/me', requireAuth, (req: AuthenticatedRequest, res: Response) =>
         profile.skills = skills;
       }
     } else if (user.role === 'employer') {
-      profile = db.prepare(`
+      profile = await db.prepare(`
         SELECT ep.*, ev.status as verification_status, ev.registration_number, ev.reviewer_notes
         FROM employer_profiles ep
         LEFT JOIN employer_verifications ev ON ev.employer_id = ep.id
         WHERE ep.user_id = ?
       `).get(user.id);
     } else if (user.role === 'mentor') {
-      profile = db.prepare('SELECT * FROM mentors WHERE user_id = ?').get(user.id);
+      profile = await db.prepare('SELECT * FROM mentors WHERE user_id = ?').get(user.id);
     }
 
     res.json({ user, profile });

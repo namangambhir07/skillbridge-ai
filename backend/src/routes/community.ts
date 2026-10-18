@@ -6,7 +6,7 @@ import { requireAuth, AuthenticatedRequest, optionalAuth } from '../middleware/a
 export const communityRouter = Router();
 
 // Startups & Co-founders
-communityRouter.get('/startups', optionalAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.get('/startups', optionalAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain, stage, commitment } = req.query;
     let query = `
@@ -34,7 +34,7 @@ communityRouter.get('/startups', optionalAuth, (req: AuthenticatedRequest, res: 
 
     query += ' ORDER BY sp.created_at DESC';
 
-    const startups = db.prepare(query).all(...params) as any[];
+    const startups = (await db.prepare(query).all(...params)) as any[];
 
     // Parse skills_needed
     const enriched = startups.map((s) => {
@@ -53,7 +53,7 @@ communityRouter.get('/startups', optionalAuth, (req: AuthenticatedRequest, res: 
   }
 });
 
-communityRouter.post('/startups', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.post('/startups', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { company_name, domain, tagline, description, stage, commitment_type, roles_needed, skills_needed } = req.body;
 
@@ -65,7 +65,7 @@ communityRouter.post('/startups', requireAuth, (req: AuthenticatedRequest, res: 
     const startupId = 'stp_' + crypto.randomUUID().slice(0, 8);
     const skillsArray = Array.isArray(skills_needed) ? skills_needed : [skills_needed || 'Product Development'];
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO startup_profiles (
         id, founder_id, company_name, domain, tagline, description, stage, commitment_type, roles_needed, skills_needed
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -88,31 +88,31 @@ communityRouter.post('/startups', requireAuth, (req: AuthenticatedRequest, res: 
   }
 });
 
-communityRouter.post('/startups/:id/express-interest', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.post('/startups/:id/express-interest', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const startupId = req.params.id;
     const { message, relevant_skills } = req.body;
 
-    const candProfile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId) as any;
+    const candProfile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId)) as any;
     if (!candProfile) {
       res.status(403).json({ error: 'Candidate profile required to express interest' });
       return;
     }
 
-    const startup = db.prepare('SELECT * FROM startup_profiles WHERE id = ?').get(startupId) as any;
+    const startup = (await db.prepare('SELECT * FROM startup_profiles WHERE id = ?').get(startupId)) as any;
     if (!startup) {
       res.status(404).json({ error: 'Startup opportunity not found' });
       return;
     }
 
     const interestId = 'int_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO cofounder_interests (id, startup_id, candidate_id, message, relevant_skills, status)
       VALUES (?, ?, ?, ?, ?, 'pending')
     `).run(interestId, startupId, candProfile.id, message || 'Interested in collaborating.', relevant_skills || 'Full-Stack Development');
 
     // Notify founder
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, 'New Co-Founder Interest Expressed', ?, ?)
     `).run(
@@ -129,14 +129,14 @@ communityRouter.post('/startups/:id/express-interest', requireAuth, (req: Authen
 });
 
 // Mentors Directory
-communityRouter.get('/mentors', (_req, res) => {
+communityRouter.get('/mentors', async (_req, res) => {
   try {
-    const mentors = db.prepare(`
+    const mentors = (await db.prepare(`
       SELECT m.*, u.name, u.email
       FROM mentors m
       JOIN users u ON u.id = m.user_id
       ORDER BY m.created_at DESC
-    `).all() as any[];
+    `).all()) as any[];
 
     const enriched = mentors.map((m) => {
       let skills: string[] = [];
@@ -154,31 +154,31 @@ communityRouter.get('/mentors', (_req, res) => {
   }
 });
 
-communityRouter.post('/mentors/:id/request', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.post('/mentors/:id/request', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const mentorId = req.params.id;
     const { message, goals } = req.body;
 
-    const candProfile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId) as any;
+    const candProfile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(req.user!.userId)) as any;
     if (!candProfile) {
       res.status(403).json({ error: 'Candidate profile required to request mentorship' });
       return;
     }
 
-    const mentor = db.prepare('SELECT * FROM mentors WHERE id = ?').get(mentorId) as any;
+    const mentor = (await db.prepare('SELECT * FROM mentors WHERE id = ?').get(mentorId)) as any;
     if (!mentor) {
       res.status(404).json({ error: 'Mentor not found' });
       return;
     }
 
     const requestId = 'mrq_' + crypto.randomUUID().slice(0, 8);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO mentorship_requests (id, mentor_id, candidate_id, message, goals, status)
       VALUES (?, ?, ?, ?, ?, 'pending')
     `).run(requestId, mentorId, candProfile.id, message || 'Seeking career guidance and skill roadmap support.', goals || 'Improve system design and practical project evidence.');
 
     // Notify mentor
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, 'New Mentorship Request', ?, ?)
     `).run(
@@ -194,15 +194,15 @@ communityRouter.post('/mentors/:id/request', requireAuth, (req: AuthenticatedReq
   }
 });
 
-communityRouter.get('/mentors/my-requests', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.get('/mentors/my-requests', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const mentor = db.prepare('SELECT id FROM mentors WHERE user_id = ?').get(req.user!.userId) as any;
+    const mentor = (await db.prepare('SELECT id FROM mentors WHERE user_id = ?').get(req.user!.userId)) as any;
     if (!mentor) {
       res.status(403).json({ error: 'Only registered mentors can access this route' });
       return;
     }
 
-    const requests = db.prepare(`
+    const requests = await db.prepare(`
       SELECT mr.*, cp.headline, cp.bio, u.name as candidate_name, u.email as candidate_email
       FROM mentorship_requests mr
       JOIN candidate_profiles cp ON cp.id = mr.candidate_id
@@ -217,33 +217,32 @@ communityRouter.get('/mentors/my-requests', requireAuth, (req: AuthenticatedRequ
   }
 });
 
-communityRouter.patch('/mentors/requests/:id', requireAuth, (req: AuthenticatedRequest, res: Response) => {
+communityRouter.patch('/mentors/requests/:id', requireAuth, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { status, feedback } = req.body;
-    // status: 'accepted' | 'declined' | 'completed'
 
-    const request = db.prepare(`
+    const request = (await db.prepare(`
       SELECT mr.*, cp.user_id as candidate_user_id, u.name as mentor_name
       FROM mentorship_requests mr
       JOIN mentors m ON m.id = mr.mentor_id
       JOIN users u ON u.id = m.user_id
       JOIN candidate_profiles cp ON cp.id = mr.candidate_id
       WHERE mr.id = ?
-    `).get(req.params.id) as any;
+    `).get(req.params.id)) as any;
 
     if (!request) {
       res.status(404).json({ error: 'Request not found' });
       return;
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE mentorship_requests
       SET status = ?, feedback = ?
       WHERE id = ?
     `).run(status, feedback || '', req.params.id);
 
     // Notify candidate
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO notifications (id, user_id, title, message, link)
       VALUES (?, ?, 'Mentorship Request Update', ?, ?)
     `).run(

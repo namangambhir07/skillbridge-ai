@@ -56,8 +56,8 @@ Deterministic, transparent matching scoring:
 |---|---|
 | **Frontend** | React 19, TypeScript, Vite, Tailwind CSS, TanStack Query v5, React Router v7, Lucide Icons, Recharts |
 | **Backend** | Node.js, Express, TypeScript, REST APIs, Zod validation, JWT authentication, bcryptjs |
-| **Database** | SQLite via `better-sqlite3` (PostgreSQL-compatible relational schema with 27 tables, strict foreign keys, and indexes) |
-| **Architecture** | Clean service layer (`matchingEngine`, `safetyService`, `adaptationEvaluator`), role-based middleware (`candidate`, `employer`, `mentor`, `admin`) |
+| **Database** | PostgreSQL via `pg` connection pool with SSL (Production-ready via `DATABASE_URL` for Neon, Supabase, Render, Railway; automatic zero-config in-memory PostgreSQL fallback for local dev & testing) |
+| **Architecture** | Clean service layer (`matchingEngine`, `safetyService`, `adaptationEvaluator`), role-based middleware (`candidate`, `employer`, `mentor`, `admin`), safe schema migrations (`npm run migrate`) |
 | **Zero External API Cost** | Works 100% locally and offline without paid LLM API keys. Optional LLM adapter interface ready for production scale. |
 
 ---
@@ -166,6 +166,73 @@ Results: 29 Passed, 0 Failed
 
 ---
 
+## 🗄️ Database Architecture & Vercel Production Deployment
+
+### Why PostgreSQL Replaced SQLite on Vercel
+SkillBridge AI was upgraded from SQLite (`better-sqlite3`) to PostgreSQL:
+1. **Serverless Filesystem Constraints**: Vercel Serverless Functions execute on a strictly read-only filesystem (only `/tmp` is temporarily writable). SQLite's attempt to create write locks, `.db-wal`, or write-ahead logs fails immediately with `SqliteError: unable to open database`.
+2. **Ephemeral Containers**: Moving a SQLite file to `/tmp` is an anti-pattern: serverless containers spin up and down unpredictably. Every cold start or invocation in a new instance wipes all candidate submissions, user registrations, and employer verifications.
+3. **Native C++ Addons**: `better-sqlite3` relies on `node-gyp` and platform-specific C++ compilers, which easily fail on cloud container architectures. The pure JavaScript `pg` driver is lightweight, universally portable, and natively supports connection pooling.
+
+### Zero-Config Local Development & Testing
+- If `DATABASE_URL` is **not set** in `.env`, SkillBridge AI automatically launches an **in-memory PostgreSQL engine** (`pg-mem`).
+- You can clone the repo, run `npm test`, or start development servers without having PostgreSQL installed locally.
+- To connect to a local or remote PostgreSQL instance locally, simply create `backend/.env` with:
+  ```env
+  DATABASE_URL=postgresql://postgres:postgres@localhost:5432/skillbridge_ai
+  ```
+
+### Step-by-Step Production PostgreSQL Setup (Neon / Supabase)
+1. **Create a Free PostgreSQL Database**:
+   - Go to [Neon.tech](https://neon.tech) (recommended for serverless) or [Supabase](https://supabase.com).
+   - Create a new project named `skillbridge-ai`.
+   - Copy the pooled connection string with `?sslmode=require` (e.g., `postgresql://user:pass@ep-cool-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require`).
+2. **Run Migrations on Production Database**:
+   From your local terminal, apply the 27-table relational schema to your hosted PostgreSQL database:
+   ```bash
+   DATABASE_URL="postgresql://user:pass@ep-cool-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require" npm run migrate
+   ```
+3. **(Optional) Seed Demo Data on Production Database**:
+   To seed the demo hackathon users, jobs, Trace assessments, and rubric evaluations:
+   ```bash
+   DATABASE_URL="postgresql://user:pass@ep-cool-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require" npm run seed
+   ```
+
+### Deploying the Backend to Vercel
+1. In your [Vercel Dashboard](https://vercel.com/dashboard), click **Add New Project** and import your SkillBridge AI repository.
+2. In **Project Settings**:
+   - **Root Directory**: `backend`
+   - **Framework Preset**: Other (or Node.js)
+   - **Build Command**: `npm run build`
+   - **Output Directory**: `dist`
+3. Add **Environment Variables** in Vercel Project Settings:
+   - `DATABASE_URL`: `postgresql://user:password@host:5432/dbname?sslmode=require` (your hosted PostgreSQL connection string)
+   - `JWT_SECRET`: A secure random secret string (e.g., generated with `openssl rand -hex 32`)
+   - `NODE_ENV`: `production`
+   - `CORS_ORIGIN`: Your production frontend URL (or `*`)
+4. Click **Deploy**.
+
+### Verifying the Production Health Endpoint
+Once deployed, verify database connectivity by requesting the health check:
+```bash
+curl https://your-skillbridge-backend.vercel.app/api/v1/health
+```
+Expected healthy response:
+```json
+{
+  "status": "healthy",
+  "database": "connected",
+  "databaseType": "hosted-postgresql",
+  "product": "SkillBridge AI",
+  "tagline": "Better Matches. Faster Hiring. Real Opportunities.",
+  "assessmentEngine": "Trace",
+  "timestamp": "2026-10-18T07:00:00.000Z"
+}
+```
+If `DATABASE_URL` is unreachable, the endpoint returns HTTP `503 Service Unavailable` with status `"degraded"`, sanitizing credentials from all log outputs.
+
+---
+
 ## 🧭 End-to-End User Journeys (Hackathon Tour)
 
 ### Journey 1: The Continuous Growth & Reapplication Loop (Candidate & Recruiter)
@@ -208,7 +275,7 @@ Results: 29 Passed, 0 Failed
 
 ## 🗄️ Database Architecture
 
-The SQLite schema consists of 27 relational tables designed with clean foreign keys and indexes for zero-downtime migration to PostgreSQL:
+The PostgreSQL relational schema consists of 27 relational tables designed with strict foreign keys, cascade deletes, and B-tree indexes:
 - `users`: Core identity with bcrypt password hashing and role constraints.
 - `candidate_profiles` & `candidate_skills`: Education, experience, social URLs, proficiency levels, and verification source tracking.
 - `employer_profiles` & `employer_verifications`: Corporate registration metadata, business domain validation, and review trails.

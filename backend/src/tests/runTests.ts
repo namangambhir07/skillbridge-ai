@@ -3,6 +3,7 @@ import { checkJobSafety } from '../services/safetyService.js';
 import { evaluateAdaptation } from '../services/adaptationEvaluator.js';
 import { hashPassword, comparePassword, generateToken, verifyToken } from '../utils/auth.js';
 import { db, initDatabase } from '../db/database.js';
+import { runSeed } from '../db/seed.js';
 
 let passed = 0;
 let failed = 0;
@@ -22,7 +23,13 @@ async function runAllTests() {
   console.log('SkillBridge AI - Business Logic Test Suite');
   console.log('=============================================\n');
 
-  initDatabase();
+  await initDatabase();
+
+  // If running in in-memory test environment, seed database automatically
+  const userCheck = ((await db.prepare('SELECT COUNT(*) as c FROM users').get()) as any)?.c;
+  if (Number(userCheck || 0) === 0) {
+    await runSeed();
+  }
 
   // 1. Auth & Crypto Tests
   console.log('1. Authentication & Security:');
@@ -130,24 +137,26 @@ async function runAllTests() {
 
   // 5. Database Seed Verification
   console.log('\n5. Persistent Database Seed Verification:');
-  const candidateUser = db.prepare('SELECT id, name FROM users WHERE email = ?').get('candidate@skillbridge.ai') as any;
+  const candidateUser = (await db.prepare('SELECT id, name FROM users WHERE email = ?').get('candidate@skillbridge.ai')) as any;
   assert(candidateUser && candidateUser.name === 'Alex Rivera', 'Candidate demo account exists in database');
 
-  const employerUser = db.prepare('SELECT id, name FROM users WHERE email = ?').get('employer@skillbridge.ai') as any;
+  const employerUser = (await db.prepare('SELECT id, name FROM users WHERE email = ?').get('employer@skillbridge.ai')) as any;
   assert(employerUser && employerUser.name === 'Elena Rostova', 'Employer demo account exists in database');
 
-  const verifiedOrg = db.prepare("SELECT status FROM employer_verifications WHERE employer_id = 'emp_nexus'").get() as any;
+  const verifiedOrg = (await db.prepare("SELECT status FROM employer_verifications WHERE employer_id = 'emp_nexus'").get()) as any;
   assert(verifiedOrg && verifiedOrg.status === 'verified', 'Nexus Cloud Systems has verified employer status');
 
-  const jobsCount = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as any).c;
+  const jobsCount = Number(((await db.prepare('SELECT COUNT(*) as c FROM jobs').get()) as any)?.c || 0);
   assert(jobsCount >= 4, `Database contains ${jobsCount} seeded opportunities`);
 
-  const assessmentSession = db.prepare("SELECT id, status, paste_count FROM assessment_sessions WHERE id = 'ses_alex_demo_1'").get() as any;
+  const assessmentSession = (await db.prepare("SELECT id, status, paste_count FROM assessment_sessions WHERE id = 'ses_alex_demo_1'").get()) as any;
   assert(assessmentSession && assessmentSession.status === 'completed', 'Trace assessment session seeded with completed status');
   assert(assessmentSession.paste_count === 1, 'Objective telemetry captures 1 paste event without accusation');
 
-  const miniProject = db.prepare("SELECT status FROM mini_projects WHERE id = 'mp_nexus_alex_1'").get() as any;
+  const miniProject = (await db.prepare("SELECT status FROM mini_projects WHERE id = 'mp_nexus_alex_1'").get()) as any;
   assert(miniProject && miniProject.status === 'accepted', 'Mini-project seeded in accepted state for reapplication proof');
+
+  await db.close();
 
   console.log('\n=============================================');
   console.log(`Results: ${passed} Passed, ${failed} Failed`);

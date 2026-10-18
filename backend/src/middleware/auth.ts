@@ -6,7 +6,7 @@ export interface AuthenticatedRequest extends Request {
   user?: TokenPayload & { candidateProfileId?: string; employerProfileId?: string };
 }
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Unauthorized: Authentication token required' });
@@ -22,7 +22,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   }
 
   // Check if user still exists in database
-  const user = db.prepare('SELECT id, email, role, name FROM users WHERE id = ?').get(payload.userId) as any;
+  const user = (await db.prepare('SELECT id, email, role, name FROM users WHERE id = ?').get(payload.userId)) as any;
   if (!user) {
     res.status(401).json({ error: 'Unauthorized: User not found' });
     return;
@@ -36,23 +36,23 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   };
 
   if (user.role === 'candidate') {
-    const profile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(user.id) as any;
+    const profile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(user.id)) as any;
     if (profile) req.user.candidateProfileId = profile.id;
   } else if (user.role === 'employer') {
-    const profile = db.prepare('SELECT id FROM employer_profiles WHERE user_id = ?').get(user.id) as any;
+    const profile = (await db.prepare('SELECT id FROM employer_profiles WHERE user_id = ?').get(user.id)) as any;
     if (profile) req.user.employerProfileId = profile.id;
   }
 
   next();
 }
 
-export function optionalAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function optionalAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split(' ')[1];
     const payload = verifyToken(token);
     if (payload) {
-      const user = db.prepare('SELECT id, email, role, name FROM users WHERE id = ?').get(payload.userId) as any;
+      const user = (await db.prepare('SELECT id, email, role, name FROM users WHERE id = ?').get(payload.userId)) as any;
       if (user) {
         req.user = {
           userId: user.id,
@@ -61,10 +61,10 @@ export function optionalAuth(req: AuthenticatedRequest, res: Response, next: Nex
           name: user.name,
         };
         if (user.role === 'candidate') {
-          const profile = db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(user.id) as any;
+          const profile = (await db.prepare('SELECT id FROM candidate_profiles WHERE user_id = ?').get(user.id)) as any;
           if (profile) req.user.candidateProfileId = profile.id;
         } else if (user.role === 'employer') {
-          const profile = db.prepare('SELECT id FROM employer_profiles WHERE user_id = ?').get(user.id) as any;
+          const profile = (await db.prepare('SELECT id FROM employer_profiles WHERE user_id = ?').get(user.id)) as any;
           if (profile) req.user.employerProfileId = profile.id;
         }
       }

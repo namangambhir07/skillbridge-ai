@@ -1,9 +1,27 @@
 import { db, initDatabase } from './database.js';
 import { hashPassword } from '../utils/auth.js';
 
-export function runSeed(): void {
+function datetimeOffset(offsetStr: string, additionalSeconds = 0): string {
+  const d = new Date();
+  if (offsetStr.includes('days')) {
+    const days = parseInt(offsetStr.replace(/[^0-9]/g, '')) || 0;
+    d.setDate(d.getDate() - days);
+  } else if (offsetStr.includes('hours')) {
+    const hr = parseInt(offsetStr.replace(/[^0-9]/g, '')) || 0;
+    d.setHours(d.getHours() - hr);
+  } else if (offsetStr.includes('minutes')) {
+    const min = parseInt(offsetStr.replace(/[^0-9]/g, '')) || 0;
+    d.setMinutes(d.getMinutes() - min);
+  }
+  if (additionalSeconds) {
+    d.setSeconds(d.getSeconds() + additionalSeconds);
+  }
+  return d.toISOString();
+}
+
+export async function runSeed(): Promise<void> {
   console.log('Seeding SkillBridge AI database with realistic hackathon demo data...');
-  initDatabase();
+  await initDatabase();
 
   // Clear existing records to ensure fresh demo state
   const tables = [
@@ -18,7 +36,7 @@ export function runSeed(): void {
   ];
 
   for (const table of tables) {
-    db.prepare(`DELETE FROM ${table}`).run();
+    await db.prepare(`DELETE FROM ${table}`).run();
   }
 
   // 1. Seed Skills Catalog
@@ -38,7 +56,7 @@ export function runSeed(): void {
 
   const insertSkill = db.prepare('INSERT INTO skills (id, name, category) VALUES (?, ?, ?)');
   for (const s of skillList) {
-    insertSkill.run(s.id, s.name, s.category);
+    await insertSkill.run(s.id, s.name, s.category);
   }
 
   // 2. Seed Users
@@ -53,25 +71,25 @@ export function runSeed(): void {
   `);
 
   // Demo Candidate
-  insertUser.run('usr_candidate_1', 'candidate@skillbridge.ai', defaultPasswordHash, 'candidate', 'Alex Rivera');
+  await insertUser.run('usr_candidate_1', 'candidate@skillbridge.ai', defaultPasswordHash, 'candidate', 'Alex Rivera');
   // Secondary Candidate
-  insertUser.run('usr_candidate_2', 'priya@skillbridge.ai', defaultPasswordHash, 'candidate', 'Priya Sharma');
+  await insertUser.run('usr_candidate_2', 'priya@skillbridge.ai', defaultPasswordHash, 'candidate', 'Priya Sharma');
 
   // Demo Employer (Verified)
-  insertUser.run('usr_employer_1', 'employer@skillbridge.ai', employerPasswordHash, 'employer', 'Elena Rostova');
+  await insertUser.run('usr_employer_1', 'employer@skillbridge.ai', employerPasswordHash, 'employer', 'Elena Rostova');
   // Secondary Employer (Pending Review)
-  insertUser.run('usr_employer_2', 'david@quantumfin.demo', employerPasswordHash, 'employer', 'David Vance');
+  await insertUser.run('usr_employer_2', 'david@quantumfin.demo', employerPasswordHash, 'employer', 'David Vance');
   // Suspicious Employer (Unverified / Flagged)
-  insertUser.run('usr_employer_3', 'recruiter@quickhires.demo', employerPasswordHash, 'employer', 'Jordan Reed');
+  await insertUser.run('usr_employer_3', 'recruiter@quickhires.demo', employerPasswordHash, 'employer', 'Jordan Reed');
 
   // Demo Mentor
-  insertUser.run('usr_mentor_1', 'mentor@skillbridge.ai', mentorPasswordHash, 'mentor', 'Marcus Chen');
+  await insertUser.run('usr_mentor_1', 'mentor@skillbridge.ai', mentorPasswordHash, 'mentor', 'Marcus Chen');
 
   // Demo Admin
-  insertUser.run('usr_admin_1', 'admin@skillbridge.ai', adminPasswordHash, 'admin', 'Sarah Jenkins');
+  await insertUser.run('usr_admin_1', 'admin@skillbridge.ai', adminPasswordHash, 'admin', 'Sarah Jenkins');
 
   // 3. Seed Candidate Profiles
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO candidate_profiles (
       id, user_id, headline, bio, education, experience, portfolio_url, github_url, linkedin_url,
       preferred_roles, preferred_work_mode, location_preference, availability, profile_visibility
@@ -92,7 +110,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO candidate_profiles (
       id, user_id, headline, bio, education, experience, preferred_roles, preferred_work_mode, location_preference
     ) VALUES (
@@ -113,17 +131,17 @@ export function runSeed(): void {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  insertCandidateSkill.run('csk_1', 'cand_alex', 'skl_react', 'advanced', 'assessment_verified', new Date().toISOString());
-  insertCandidateSkill.run('csk_2', 'cand_alex', 'skl_ts', 'intermediate', 'project_verified', new Date().toISOString());
-  insertCandidateSkill.run('csk_3', 'cand_alex', 'skl_tailwind', 'advanced', 'self_reported', null);
-  insertCandidateSkill.run('csk_4', 'cand_alex', 'skl_api', 'intermediate', 'self_reported', null);
+  await insertCandidateSkill.run('csk_1', 'cand_alex', 'skl_react', 'advanced', 'assessment_verified', new Date().toISOString());
+  await insertCandidateSkill.run('csk_2', 'cand_alex', 'skl_ts', 'intermediate', 'project_verified', new Date().toISOString());
+  await insertCandidateSkill.run('csk_3', 'cand_alex', 'skl_tailwind', 'advanced', 'self_reported', null);
+  await insertCandidateSkill.run('csk_4', 'cand_alex', 'skl_api', 'intermediate', 'self_reported', null);
 
-  insertCandidateSkill.run('csk_5', 'cand_priya', 'skl_py', 'advanced', 'self_reported', null);
-  insertCandidateSkill.run('csk_6', 'cand_priya', 'skl_sql', 'expert', 'assessment_verified', new Date().toISOString());
+  await insertCandidateSkill.run('csk_5', 'cand_priya', 'skl_py', 'advanced', 'self_reported', null);
+  await insertCandidateSkill.run('csk_6', 'cand_priya', 'skl_sql', 'expert', 'assessment_verified', new Date().toISOString());
 
   // 5. Seed Employer Profiles & Verifications
   // Employer 1: Nexus Cloud Systems (Verified)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_profiles (
       id, user_id, org_name, org_website, business_email, industry, company_size, description, logo_url
     ) VALUES (
@@ -135,7 +153,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_verifications (
       id, employer_id, status, registration_number, supporting_info, reviewer_notes, reviewed_by, reviewed_at
     ) VALUES (
@@ -147,7 +165,7 @@ export function runSeed(): void {
   `).run();
 
   // Employer 2: Quantum FinTech (Pending Review)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_profiles (
       id, user_id, org_name, org_website, business_email, industry, company_size, description
     ) VALUES (
@@ -158,7 +176,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_verifications (
       id, employer_id, status, registration_number, supporting_info
     ) VALUES (
@@ -168,7 +186,7 @@ export function runSeed(): void {
   `).run();
 
   // Employer 3: Apex Digital Services (Suspicious / Unverified)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_profiles (
       id, user_id, org_name, org_website, business_email, industry, company_size, description
     ) VALUES (
@@ -179,7 +197,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO employer_verifications (
       id, employer_id, status, registration_number, supporting_info
     ) VALUES (
@@ -189,7 +207,7 @@ export function runSeed(): void {
 
   // 6. Seed Jobs & Internships
   // Job 1: Junior Full-Stack Engineer at Nexus (Primary Demo Job)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO jobs (
       id, employer_id, title, opportunity_type, category, work_mode, location,
       experience_level, description, responsibilities, eligibility_criteria, salary_range, status, safety_verdict
@@ -206,7 +224,7 @@ export function runSeed(): void {
   `).run();
 
   // Job 2: Frontend Engineering Intern at Nexus
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO jobs (
       id, employer_id, title, opportunity_type, category, work_mode, location,
       experience_level, description, responsibilities, eligibility_criteria, salary_range, status, safety_verdict
@@ -223,7 +241,7 @@ export function runSeed(): void {
   `).run();
 
   // Job 3: Backend Systems Engineer at Quantum FinTech
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO jobs (
       id, employer_id, title, opportunity_type, category, work_mode, location,
       experience_level, description, responsibilities, eligibility_criteria, salary_range, status, safety_verdict
@@ -240,22 +258,28 @@ export function runSeed(): void {
   `).run();
 
   // Job 4: Suspicious Job with fee demand (Flagged in Safety Check)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO jobs (
       id, employer_id, title, opportunity_type, category, work_mode, location,
       experience_level, description, responsibilities, eligibility_criteria, salary_range, status, safety_verdict, safety_reasons
-    ) VALUES (
-      'job_suspicious_1', 'emp_apex',
-      'Remote Customer Support Assistant (Immediate Placement)', 'job', 'Customer Support', 'remote', 'Remote',
-      'No Experience Needed',
-      'Urgent opening for remote data assistant. High guaranteed payout. Note: Registration fee of $85 is required for background processing and training deposit equipment before joining. Contact us on Telegram directly.',
-      'Data entry and remote customer emails.',
-      'Must have computer and internet.',
-      '$4,000 / month',
-      'review_required', 'BLOCK',
-      '["Job description appears to request upfront payments, processing fees, or money transfers from applicants, which violates platform safety policy.","Job directs applicants to circumvent the platform to private instant messaging channels without verified business credentials."]'
-    )
-  `).run();
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'job_suspicious_1',
+    'emp_apex',
+    'Remote Customer Support Assistant (Immediate Placement)',
+    'job',
+    'Customer Support',
+    'remote',
+    'Remote',
+    'No Experience Needed',
+    'Urgent opening for remote data assistant. High guaranteed payout. Note: Registration fee of $85 is required for background processing and training deposit equipment before joining. Contact us on Telegram directly.',
+    'Data entry and remote customer emails.',
+    'Must have computer and internet.',
+    '$4,000 / month',
+    'review_required',
+    'BLOCK',
+    '["Job description appears to request upfront payments, processing fees, or money transfers from applicants, which violates platform safety policy.","Job directs applicants to circumvent the platform to private instant messaging channels without verified business credentials."]'
+  );
 
   // 7. Seed Job Requirements
   const insertJobReq = db.prepare(`
@@ -264,19 +288,19 @@ export function runSeed(): void {
   `);
 
   // Requirements for Junior Full-Stack Engineer at Nexus
-  insertJobReq.run('req_1', 'job_nexus_fs', 'skl_react', 1, 'intermediate');
-  insertJobReq.run('req_2', 'job_nexus_fs', 'skl_ts', 1, 'intermediate');
-  insertJobReq.run('req_3', 'job_nexus_fs', 'skl_node', 1, 'intermediate');
-  insertJobReq.run('req_4', 'job_nexus_fs', 'skl_api', 0, 'intermediate'); // Preferred
-  insertJobReq.run('req_5', 'job_nexus_fs', 'skl_tailwind', 0, 'intermediate'); // Preferred
+  await insertJobReq.run('req_1', 'job_nexus_fs', 'skl_react', 1, 'intermediate');
+  await insertJobReq.run('req_2', 'job_nexus_fs', 'skl_ts', 1, 'intermediate');
+  await insertJobReq.run('req_3', 'job_nexus_fs', 'skl_node', 1, 'intermediate');
+  await insertJobReq.run('req_4', 'job_nexus_fs', 'skl_api', 0, 'intermediate'); // Preferred
+  await insertJobReq.run('req_5', 'job_nexus_fs', 'skl_tailwind', 0, 'intermediate'); // Preferred
 
   // Requirements for Quantum Backend Engineer
-  insertJobReq.run('req_6', 'job_quantum_be', 'skl_node', 1, 'advanced');
-  insertJobReq.run('req_7', 'job_quantum_be', 'skl_sql', 1, 'advanced');
-  insertJobReq.run('req_8', 'job_quantum_be', 'skl_py', 0, 'intermediate');
+  await insertJobReq.run('req_6', 'job_quantum_be', 'skl_node', 1, 'advanced');
+  await insertJobReq.run('req_7', 'job_quantum_be', 'skl_sql', 1, 'advanced');
+  await insertJobReq.run('req_8', 'job_quantum_be', 'skl_py', 0, 'intermediate');
 
   // 8. Seed Trace Assessment Template for Nexus
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO assessments (
       id, job_id, title, task_type, initial_prompt, follow_up_prompt, evaluation_criteria, time_limit_minutes, status
     ) VALUES (
@@ -289,8 +313,8 @@ export function runSeed(): void {
     )
   `).run();
 
-  // Additional Assessment Templates (Writing, Coding, Data Analysis, Virtual Assistant)
-  db.prepare(`
+  // Additional Assessment Templates (Writing, Coding, Data Analysis)
+  await db.prepare(`
     INSERT INTO assessments (
       id, job_id, title, task_type, initial_prompt, follow_up_prompt, evaluation_criteria, time_limit_minutes, status
     ) VALUES (
@@ -303,7 +327,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO assessments (
       id, job_id, title, task_type, initial_prompt, follow_up_prompt, evaluation_criteria, time_limit_minutes, status
     ) VALUES (
@@ -317,39 +341,40 @@ export function runSeed(): void {
   `).run();
 
   // 9. Seed Application for Alex Rivera
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO applications (
       id, job_id, candidate_id, status, applied_at, updated_at, reapplication_count
     ) VALUES (
       'app_alex_nexus_1', 'job_nexus_fs', 'cand_alex', 'improvement_suggested',
-      datetime('now', '-3 days'), datetime('now', '-1 hours'), 0
+      ?, ?, 0
     )
-  `).run();
+  `).run(datetimeOffset('-3 days'), datetimeOffset('-1 hours'));
 
-  db.prepare(`
+  const insertStatusHistory = db.prepare(`
     INSERT INTO application_status_history (id, application_id, status, notes, changed_by, created_at)
-    VALUES
-      ('ash_1', 'app_alex_nexus_1', 'applied', 'Initial application submitted', 'usr_candidate_1', datetime('now', '-3 days')),
-      ('ash_2', 'app_alex_nexus_1', 'assessment_required', 'Trace assessment assigned by recruiter', 'usr_employer_1', datetime('now', '-2 days')),
-      ('ash_3', 'app_alex_nexus_1', 'assessment_submitted', 'Trace assessment and follow-up completed', 'usr_candidate_1', datetime('now', '-2 hours')),
-      ('ash_4', 'app_alex_nexus_1', 'improvement_suggested', 'Strengths in communication noted. Recommended hands-on mini-project to verify Node.js caching & TypeScript state management.', 'usr_employer_1', datetime('now', '-1 hours'))
-  `).run();
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+
+  await insertStatusHistory.run('ash_1', 'app_alex_nexus_1', 'applied', 'Initial application submitted', 'usr_candidate_1', datetimeOffset('-3 days'));
+  await insertStatusHistory.run('ash_2', 'app_alex_nexus_1', 'assessment_required', 'Trace assessment assigned by recruiter', 'usr_employer_1', datetimeOffset('-2 days'));
+  await insertStatusHistory.run('ash_3', 'app_alex_nexus_1', 'assessment_submitted', 'Trace assessment and follow-up completed', 'usr_candidate_1', datetimeOffset('-2 hours'));
+  await insertStatusHistory.run('ash_4', 'app_alex_nexus_1', 'improvement_suggested', 'Strengths in communication noted. Recommended hands-on mini-project to verify Node.js caching & TypeScript state management.', 'usr_employer_1', datetimeOffset('-1 hours'));
 
   // 10. Seed Completed Assessment Session for Alex Rivera (Demonstrating Telemetry, Follow-Up, and Report)
   const sessionId = 'ses_alex_demo_1';
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO assessment_sessions (
       id, assessment_id, candidate_id, application_id, status, consent_accepted_at, started_at, completed_at,
       paste_count, edit_count, elapsed_seconds
     ) VALUES (
       '${sessionId}', 'asm_nexus_fs', 'cand_alex', 'app_alex_nexus_1', 'completed',
-      datetime('now', '-2 hours'), datetime('now', '-2 hours'), datetime('now', '-1 hours'),
+      ?, ?, ?,
       1, 14, 1840
     )
-  `).run();
+  `).run(datetimeOffset('-2 hours'), datetimeOffset('-2 hours'), datetimeOffset('-1 hours'));
 
   // Initial submission
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO assessment_submissions (
       id, session_id, submission_type, content, candidate_explanation
     ) VALUES (
@@ -360,7 +385,7 @@ export function runSeed(): void {
   `).run();
 
   // Revised submission
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO assessment_submissions (
       id, session_id, submission_type, content, candidate_explanation
     ) VALUES (
@@ -373,21 +398,21 @@ export function runSeed(): void {
   // Telemetry events
   const insertTel = db.prepare(`
     INSERT INTO telemetry_events (id, session_id, event_type, metadata, event_sequence, created_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now', '-110 minutes', '+' || ? || ' seconds'))
+    VALUES (?, ?, ?, ?, ?, ?)
   `);
 
-  insertTel.run('tel_1', sessionId, 'opened', JSON.stringify({ device: 'Desktop Chrome 129', screen: '1920x1080' }), 1, 0);
-  insertTel.run('tel_2', sessionId, 'consent_accepted', JSON.stringify({ policy: 'v1.2-hackathon', noticeVersion: '2026.1' }), 2, 45);
-  insertTel.run('tel_3', sessionId, 'editor_change', JSON.stringify({ changeLength: 85, source: 'keystroke' }), 3, 120);
-  insertTel.run('tel_4', sessionId, 'paste_event', JSON.stringify({ pasteLength: 42, note: 'Candidate pasted internal project code snippet / draft template' }), 4, 300);
-  insertTel.run('tel_5', sessionId, 'editor_change', JSON.stringify({ changeLength: 210, source: 'keystroke' }), 5, 450);
-  insertTel.run('tel_6', sessionId, 'initial_submit', JSON.stringify({ totalChars: 680 }), 6, 920);
-  insertTel.run('tel_7', sessionId, 'follow_up_viewed', JSON.stringify({ trigger: 'dynamic_budget_constraint' }), 7, 930);
-  insertTel.run('tel_8', sessionId, 'editor_change', JSON.stringify({ changeLength: 340, source: 'revision_typing' }), 8, 1200);
-  insertTel.run('tel_9', sessionId, 'revision_submit', JSON.stringify({ finalChars: 810, explanationChars: 180 }), 9, 1840);
+  await insertTel.run('tel_1', sessionId, 'opened', JSON.stringify({ device: 'Desktop Chrome 129', screen: '1920x1080' }), 1, datetimeOffset('-110 minutes', 0));
+  await insertTel.run('tel_2', sessionId, 'consent_accepted', JSON.stringify({ policy: 'v1.2-hackathon', noticeVersion: '2026.1' }), 2, datetimeOffset('-110 minutes', 45));
+  await insertTel.run('tel_3', sessionId, 'editor_change', JSON.stringify({ changeLength: 85, source: 'keystroke' }), 3, datetimeOffset('-110 minutes', 120));
+  await insertTel.run('tel_4', sessionId, 'paste_event', JSON.stringify({ pasteLength: 42, note: 'Candidate pasted internal project code snippet / draft template' }), 4, datetimeOffset('-110 minutes', 300));
+  await insertTel.run('tel_5', sessionId, 'editor_change', JSON.stringify({ changeLength: 210, source: 'keystroke' }), 5, datetimeOffset('-110 minutes', 450));
+  await insertTel.run('tel_6', sessionId, 'initial_submit', JSON.stringify({ totalChars: 680 }), 6, datetimeOffset('-110 minutes', 920));
+  await insertTel.run('tel_7', sessionId, 'follow_up_viewed', JSON.stringify({ trigger: 'dynamic_budget_constraint' }), 7, datetimeOffset('-110 minutes', 930));
+  await insertTel.run('tel_8', sessionId, 'editor_change', JSON.stringify({ changeLength: 340, source: 'revision_typing' }), 8, datetimeOffset('-110 minutes', 1200));
+  await insertTel.run('tel_9', sessionId, 'revision_submit', JSON.stringify({ finalChars: 810, explanationChars: 180 }), 9, datetimeOffset('-110 minutes', 1840));
 
   // Adaptation Evaluation
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO adaptation_evaluations (
       id, session_id, addresses_requirement, relevance_score, explanation_quality, rubric_breakdown, feedback_summary
     ) VALUES (
@@ -399,7 +424,7 @@ export function runSeed(): void {
   `).run();
 
   // 11. Employer Feedback
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO candidate_feedback (
       id, application_id, reviewer_id, strengths, skill_gaps, feedback_message, learning_resources, can_reapply
     ) VALUES (
@@ -413,7 +438,7 @@ export function runSeed(): void {
   `).run();
 
   // Recommended Mini-Project (Assigned to Alex)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO mini_projects (
       id, feedback_id, candidate_id, title, skill_name, objective, requirements, acceptance_criteria, status, created_at
     ) VALUES (
@@ -423,12 +448,12 @@ export function runSeed(): void {
       'Construct a high-performance in-memory LRU (Least Recently Used) cache class in TypeScript/Node.js with time-to-live (TTL) expiration, thread-safe access simulation, and telemetry event logging on eviction.',
       '1. Implement get(key) and set(key, value, ttlMs).\n2. Enforce max capacity eviction with least recently used policy.\n3. Add active cleanup of expired keys on read.\n4. Expose hit-rate and eviction count metrics.\n5. Include unit tests or demonstration script.',
       'Demonstrated TypeScript type-safety, zero memory leaks, O(1) average lookup/eviction, and clear architectural rationale.',
-      'accepted', datetime('now', '-1 hours')
+      'accepted', ?
     )
-  `).run();
+  `).run(datetimeOffset('-1 hours'));
 
   // Mini-project submission and acceptance
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO mini_project_submissions (
       id, mini_project_id, submission_text, repo_url, explanation, status, reviewer_feedback, submitted_at, reviewed_at
     ) VALUES (
@@ -438,12 +463,12 @@ export function runSeed(): void {
       'Used a doubly linked list node structure with TypeScript generics to ensure type safety for arbitrary value payloads. Kept memory footprint bounded by strictly enforcing maxCapacity.',
       'accepted',
       'Outstanding implementation. Clear clean code, O(1) doubly-linked list mechanics verified, and excellent test coverage. This satisfies our backend skill requirement and qualifies Alex for reapplication.',
-      datetime('now', '-45 minutes'), datetime('now', '-15 minutes')
+      ?, ?
     )
-  `).run();
+  `).run(datetimeOffset('-45 minutes'), datetimeOffset('-15 minutes'));
 
   // Profile evidence added for Alex
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO profile_evidence (
       id, candidate_id, skill_name, title, description, evidence_url, mini_project_id, verified_at
     ) VALUES (
@@ -451,31 +476,37 @@ export function runSeed(): void {
       'Verified Mini-Project: Resilient LRU Cache & In-Memory Eviction',
       'Peer-reviewed and verified implementation of O(1) doubly linked list LRU cache with TTL expiration and performance metrics.',
       'https://github.com/alexrivera-demo/lru-cache-service-ts',
-      'mp_nexus_alex_1', datetime('now', '-15 minutes')
+      'mp_nexus_alex_1', ?
     )
-  `).run();
+  `).run(datetimeOffset('-15 minutes'));
 
-  // Add the new skill to Alex's profile as verified!
-  db.prepare(`
-    INSERT OR REPLACE INTO candidate_skills (id, candidate_id, skill_id, proficiency_level, evidence_source, verified_at)
-    VALUES ('csk_alex_cache', 'cand_alex', 'skl_node', 'advanced', 'project_verified', datetime('now', '-15 minutes'))
-  `).run();
+  // Add the new skill to Alex's profile as verified using PostgreSQL ON CONFLICT syntax
+  await db.prepare(`
+    INSERT INTO candidate_skills (id, candidate_id, skill_id, proficiency_level, evidence_source, verified_at)
+    VALUES ('csk_alex_cache', 'cand_alex', 'skl_node', 'advanced', 'project_verified', ?)
+    ON CONFLICT (candidate_id, skill_id) DO UPDATE SET
+      proficiency_level = EXCLUDED.proficiency_level,
+      evidence_source = EXCLUDED.evidence_source,
+      verified_at = EXCLUDED.verified_at
+  `).run(datetimeOffset('-15 minutes'));
 
   // 11. Seed Suspicious Job Report (Awaiting Moderator Review)
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO job_reports (
       id, job_id, reporter_id, category, description, evidence_notes, status, created_at
-    ) VALUES (
-      'rep_apex_1', 'job_suspicious_1', 'usr_candidate_2',
-      'fee_request',
-      'Employer listing asks candidates for an upfront $85 "background processing and training equipment deposit" and directs applicants to a private Telegram handle.',
-      'Direct quote from job listing: "Registration fee of $85 is required for background processing and training deposit equipment before joining."',
-      'open', datetime('now', '-6 hours')
-    )
-  `).run();
+    ) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)
+  `).run(
+    'rep_apex_1',
+    'job_suspicious_1',
+    'usr_candidate_2',
+    'fee_request',
+    'Employer listing asks candidates for an upfront $85 "background processing and training equipment deposit" and directs applicants to a private Telegram handle.',
+    'Direct quote from job listing: "Registration fee of $85 is required for background processing and training deposit equipment before joining."',
+    datetimeOffset('-6 hours')
+  );
 
   // 12. Seed Mentors Directory
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO mentors (
       id, user_id, headline, expertise, skills, experience_years, bio, availability
     ) VALUES (
@@ -490,7 +521,7 @@ export function runSeed(): void {
   `).run();
 
   // 13. Seed Startup Co-Founder Directory
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO startup_profiles (
       id, founder_id, company_name, domain, tagline, description, stage, commitment_type, roles_needed, skills_needed
     ) VALUES (
@@ -504,7 +535,7 @@ export function runSeed(): void {
     )
   `).run();
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO startup_profiles (
       id, founder_id, company_name, domain, tagline, description, stage, commitment_type, roles_needed, skills_needed
     ) VALUES (
@@ -524,28 +555,28 @@ export function runSeed(): void {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
-  insertNotif.run(
+  await insertNotif.run(
     'not_cand_1', 'usr_candidate_1',
     'Mini-Project Accepted & Skill Verified!',
     'Your LRU Cache mini-project was accepted by Elena Rostova. Node.js has been upgraded to verified on your profile. You are now eligible to reapply!',
     '/candidate/growth', 0, datetimeOffset('-15 minutes')
   );
 
-  insertNotif.run(
+  await insertNotif.run(
     'not_cand_2', 'usr_candidate_1',
     'Constructive Feedback Received for Junior Full-Stack Engineer',
     'Nexus Cloud Systems reviewed your Trace evidence report and assigned a practical mini-project to qualify for reapplication.',
     '/candidate/growth', 1, datetimeOffset('-1 hours')
   );
 
-  insertNotif.run(
+  await insertNotif.run(
     'not_emp_1', 'usr_employer_1',
     'New Practical Mini-Project Evidence Submitted',
     'Alex Rivera submitted code repository and documentation for "Resilient In-Memory LRU Cache".',
     '/employer/applicants', 1, datetimeOffset('-45 minutes')
   );
 
-  insertNotif.run(
+  await insertNotif.run(
     'not_adm_1', 'usr_admin_1',
     'Suspicious Job Listing Flagged for Moderation',
     'Priya Sharma reported "Remote Customer Support Assistant" for advance recruitment fee solicitation.',
@@ -555,19 +586,14 @@ export function runSeed(): void {
   console.log('SkillBridge AI database successfully seeded with all realistic demo scenarios!');
 }
 
-function datetimeOffset(offsetStr: string): string {
-  const d = new Date();
-  if (offsetStr.includes('minutes')) {
-    const min = parseInt(offsetStr.replace(/[^0-9]/g, '')) || 0;
-    d.setMinutes(d.getMinutes() - min);
-  } else if (offsetStr.includes('hours')) {
-    const hr = parseInt(offsetStr.replace(/[^0-9]/g, '')) || 0;
-    d.setHours(d.getHours() - hr);
-  }
-  return d.toISOString();
-}
-
 if (process.argv[1] && process.argv[1].endsWith('seed.ts')) {
-  runSeed();
-  process.exit(0);
+  runSeed()
+    .then(() => {
+      console.log('Seed execution finished.');
+      process.exit(0);
+    })
+    .catch((err) => {
+      console.error('Seed execution error:', err);
+      process.exit(1);
+    });
 }
