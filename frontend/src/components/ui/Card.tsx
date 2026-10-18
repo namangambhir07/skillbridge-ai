@@ -36,7 +36,7 @@ export const CardTitle: React.FC<React.HTMLAttributes<HTMLHeadingElement>> = ({ 
 
 export const CardDescription: React.FC<React.HTMLAttributes<HTMLParagraphElement>> = ({ className, children, ...props }) => {
   return (
-    <p className={twMerge(clsx('text-sm text-slate-600 mt-1', className))} {...props}>
+    <p className={twMerge(clsx('text-sm text-slate-500 mt-1 leading-relaxed', className))} {...props}>
       {children}
     </p>
   );
