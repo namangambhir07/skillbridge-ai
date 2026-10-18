@@ -250,6 +250,14 @@ async function runAllTests() {
   });
   assert(adminLoginRes.status === 200, 'Admin demo login returns HTTP 200 OK');
 
+  // 7b. Legacy/misconfigured URL normalization test
+  const normalizedLoginRes = await fetch(`${baseUrl}/api/v1/health/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'candidate@skillbridge.ai', password: 'Candidate123!' }),
+  });
+  assert(normalizedLoginRes.status === 200, 'Normalized URL /api/v1/health/api/v1/auth/login rewrites to /api/v1/auth/login and returns HTTP 200 OK');
+
   server.close();
 
   await db.close();

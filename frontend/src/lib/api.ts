@@ -9,28 +9,53 @@
  * 4. Falls back to "/api/v1" when no env variable is provided (for local Vite dev proxy)
  */
 export function getApiBaseUrl(): string {
-  const envUrl = (
+  // Prioritize VITE_API_URL (canonical), fallback to VITE_API_BASE_URL
+  const rawUrl = (
     (typeof import.meta !== 'undefined' &&
       import.meta.env &&
-      (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL)) ||
+      (import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL)) ||
     ''
-  )
-    .trim()
-    .replace(/\/+$/, '');
+  ).trim();
 
-  if (!envUrl) {
+  if (!rawUrl) {
     return '/api/v1';
   }
 
-  if (envUrl.endsWith('/api/v1')) {
-    return envUrl;
+  // Parse absolute HTTP/HTTPS URLs
+  try {
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      const parsed = new URL(rawUrl);
+      let pathname = parsed.pathname.replace(/\/+$/, '');
+
+      // Strip accidental health check path suffixes (e.g., /health, /api/v1/health)
+      pathname = pathname.replace(/\/health\/?$/i, '');
+
+      if (pathname.includes('/api/v1')) {
+        pathname = pathname.substring(0, pathname.indexOf('/api/v1') + '/api/v1'.length);
+      } else if (pathname.endsWith('/api')) {
+        pathname = `${pathname}/v1`;
+      } else if (!pathname || pathname === '/') {
+        pathname = '/api/v1';
+      } else {
+        pathname = `${pathname}/api/v1`;
+      }
+
+      return `${parsed.origin}${pathname}`;
+    }
+  } catch {
+    // Fall back to string-based cleaning if URL parsing fails
   }
 
-  if (envUrl.endsWith('/api')) {
-    return `${envUrl}/v1`;
+  let clean = rawUrl.replace(/\/+$/, '').replace(/\/health\/?$/i, '');
+  if (clean.includes('/api/v1')) {
+    clean = clean.substring(0, clean.indexOf('/api/v1') + '/api/v1'.length);
+  } else if (clean.endsWith('/api')) {
+    clean = `${clean}/v1`;
+  } else if (!clean.endsWith('/api/v1')) {
+    clean = `${clean}/api/v1`;
   }
 
-  return `${envUrl}/api/v1`;
+  return clean;
 }
 
 export class ApiError extends Error {
@@ -56,9 +81,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   const base = getApiBaseUrl();
   let cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  // If caller accidentally passed /api/v1/... (avoid duplicate /api/v1/api/v1/...)
+  // If caller accidentally passed /api/v1/... or /api/... (avoid duplicate prefixes)
   if (cleanEndpoint.startsWith('/api/v1/')) {
     cleanEndpoint = cleanEndpoint.substring('/api/v1'.length);
+  } else if (cleanEndpoint.startsWith('/api/')) {
+    cleanEndpoint = cleanEndpoint.substring('/api'.length);
   }
 
   const url = `${base}${cleanEndpoint}`;

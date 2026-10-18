@@ -40,6 +40,18 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
+// Path normalization middleware: catches legacy or misconfigured client paths (e.g., /api/v1/health/api/v1/...)
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  if (req.url.startsWith('/api/v1/health/api/v1/')) {
+    req.url = req.url.replace('/api/v1/health/api/v1/', '/api/v1/');
+  } else if (req.url.startsWith('/api/v1/health/')) {
+    req.url = req.url.replace('/api/v1/health/', '/api/v1/');
+  } else if (req.url.startsWith('/health/api/v1/')) {
+    req.url = req.url.replace('/health/api/v1/', '/api/v1/');
+  }
+  next();
+});
+
 // API Routes - Canonical
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/candidates', candidateRouter);
