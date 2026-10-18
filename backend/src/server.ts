@@ -101,7 +101,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
-  app.listen(port, () => {
+  app.listen(Number(port), '0.0.0.0', () => {
     console.log(`=========================================`);
     console.log(`SkillBridge AI Backend Service Running`);
     console.log(`API URL: http://localhost:${port}/api/v1`);
